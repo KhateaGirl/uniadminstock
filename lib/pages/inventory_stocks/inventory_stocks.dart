@@ -119,16 +119,16 @@ class _InventoryPageState extends State<InventoryPage> {
         return ['AB/COMM', 'BM', 'TM'];
       case 'FABRIC SPECIAL SIZE':
         return ['CHEF\'S PANTS FABRIC 2.5 yards',
-                'CHEF\'S POLO FABRIC 2.5 yards',
-                'HRM FABRIC 3 yards',
-                'HRM VEST FABRIC 2.5 yards',
-                'IT FABRIC 2.5 yards',
-                'ABCOMM/BM FABRIC 2.5 yards',
-                'PANTS FABRIC 2.5 yards',
-                'BLAZER FABRIC 2.75 yards',
-                'TOURISM BLAZER FABRIC 2.5 yards',
-                'TOURISM PANTS FABRIC 2.5 yards',
-                'TOURISM POLO FABRIC 2.5 yards'];
+          'CHEF\'S POLO FABRIC 2.5 yards',
+          'HRM FABRIC 3 yards',
+          'HRM VEST FABRIC 2.5 yards',
+          'IT FABRIC 2.5 yards',
+          'ABCOMM/BM FABRIC 2.5 yards',
+          'PANTS FABRIC 2.5 yards',
+          'BLAZER FABRIC 2.75 yards',
+          'TOURISM BLAZER FABRIC 2.5 yards',
+          'TOURISM PANTS FABRIC 2.5 yards',
+          'TOURISM POLO FABRIC 2.5 yards'];
       case 'BLOUSE WITH VEST':
       case 'POLO WITH VEST':
         return ['Small', 'Medium', 'Large', 'XL', '2XL', '3XL', '4XL', '5XL', '6XL', '7XL'];
@@ -170,9 +170,10 @@ class _InventoryPageState extends State<InventoryPage> {
             return Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Container(
-                  width: 80,
-                  child: Text('$size:'),
+                Expanded(
+                  child: Container(
+                    child: Text('$size:'),
+                  ),
                 ),
                 IconButton(
                   icon: Icon(Icons.remove),
@@ -188,8 +189,8 @@ class _InventoryPageState extends State<InventoryPage> {
                 Container(
                   width: 18,
                   child: Text('${_stockQuantities[item]?[size] ?? 0}',
-                  style: TextStyle(fontWeight: FontWeight.bold,
-                  color: active)),
+                      style: TextStyle(fontWeight: FontWeight.bold,
+                          color: active)),
                 ),
                 IconButton(
                   icon: Icon(Icons.add),
@@ -265,6 +266,7 @@ class _InventoryPageState extends State<InventoryPage> {
                     physics: NeverScrollableScrollPhysics(),
                     mainAxisSpacing: 8,
                     crossAxisSpacing: 8,
+                    childAspectRatio: 0.8, // Adjust child aspect ratio to prevent overflow
                     children: _getItems().take(10).map((item) {
                       return _buildItemCard(item);
                     }).toList(),
@@ -280,6 +282,7 @@ class _InventoryPageState extends State<InventoryPage> {
                     physics: NeverScrollableScrollPhysics(),
                     mainAxisSpacing: 8,
                     crossAxisSpacing: 8,
+                    childAspectRatio: 0.8, // Adjust child aspect ratio to prevent overflow
                     children: _getItems().skip(10).map((item) {
                       return _buildItemCard(item);
                     }).toList(),
