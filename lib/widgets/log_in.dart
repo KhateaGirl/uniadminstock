@@ -3,6 +3,7 @@ import 'package:get/get.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:unistock/layout.dart';
 import 'package:unistock/constants/style.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 class LoginPage extends StatefulWidget {
   @override
@@ -16,17 +17,31 @@ class _LoginPageState extends State<LoginPage> {
   final FocusNode _passwordFocusNode = FocusNode();
   bool _isPasswordVisible = false;
 
-  void _login() {
+  // Firebase Firestore instance
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+
+  void _login() async {
     if (_formKey.currentState!.validate()) {
-      // Hardcoded authentication logic
-      if (_usernameController.text == 'admin1' && _passwordController.text == '1234') {
-        // Navigate to the dashboard on successful login
-        Get.offAll(SiteLayout());
-      } else {
-        // Show error message if authentication fails
-        setState(() {
-          _formKey.currentState!.validate();
-        });
+      try {
+        // Query Firestore to find the matching user
+        QuerySnapshot adminSnapshot = await _firestore
+            .collection('admin')
+            .where('Username', isEqualTo: _usernameController.text)
+            .where('Password', isEqualTo: _passwordController.text)
+            .get();
+
+        if (adminSnapshot.docs.isNotEmpty) {
+          // If the user is found, navigate to the dashboard
+          Get.offAll(SiteLayout());
+        } else {
+          // Show error message if no user found
+          Get.snackbar('Error', 'Invalid username or password',
+              backgroundColor: Colors.red, colorText: Colors.white);
+        }
+      } catch (e) {
+        // Handle any errors
+        Get.snackbar('Error', 'Failed to login. Please try again later.',
+            backgroundColor: Colors.red, colorText: Colors.white);
       }
     }
   }
@@ -112,17 +127,17 @@ class _LoginPageState extends State<LoginPage> {
                           border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(8),
                           ),
-                          contentPadding: EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+                          contentPadding:
+                          EdgeInsets.symmetric(vertical: 10, horizontal: 12),
                         ),
                         textInputAction: TextInputAction.next,
                         onFieldSubmitted: (value) {
-                          FocusScope.of(context).requestFocus(_passwordFocusNode);
+                          FocusScope.of(context)
+                              .requestFocus(_passwordFocusNode);
                         },
                         validator: (value) {
                           if (value == null || value.isEmpty) {
                             return 'Please enter your username';
-                          } else if (_usernameController.text != 'admin1') {
-                            return 'Incorrect username';
                           }
                           return null;
                         },
@@ -141,10 +156,13 @@ class _LoginPageState extends State<LoginPage> {
                           border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(8),
                           ),
-                          contentPadding: EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+                          contentPadding:
+                          EdgeInsets.symmetric(vertical: 10, horizontal: 12),
                           suffixIcon: IconButton(
                             icon: Icon(
-                              _isPasswordVisible ? Icons.visibility : Icons.visibility_off,
+                              _isPasswordVisible
+                                  ? Icons.visibility
+                                  : Icons.visibility_off,
                             ),
                             onPressed: () {
                               setState(() {
@@ -159,8 +177,6 @@ class _LoginPageState extends State<LoginPage> {
                         validator: (value) {
                           if (value == null || value.isEmpty) {
                             return 'Please enter your password';
-                          } else if (_passwordController.text != '1234') {
-                            return 'Incorrect password';
                           }
                           return null;
                         },
@@ -171,7 +187,8 @@ class _LoginPageState extends State<LoginPage> {
                       onPressed: _login,
                       style: ElevatedButton.styleFrom(
                         backgroundColor: active,
-                        padding: EdgeInsets.symmetric(horizontal: 32, vertical: 16),
+                        padding: EdgeInsets.symmetric(
+                            horizontal: 32, vertical: 16),
                         textStyle: TextStyle(fontSize: 18),
                       ),
                       child: Text(
