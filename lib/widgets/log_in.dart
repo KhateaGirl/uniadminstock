@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:unistock/layout.dart';
 import 'package:unistock/constants/style.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:unistock/main.dart';
 
 class LoginPage extends StatefulWidget {
   @override
@@ -24,14 +25,24 @@ class _LoginPageState extends State<LoginPage> {
     if (_formKey.currentState!.validate()) {
       try {
         // Query Firestore to find the matching user
-        QuerySnapshot adminSnapshot = await _firestore
+        QuerySnapshot adminSnapshot = await FirebaseFirestore.instance
             .collection('admin')
             .where('Username', isEqualTo: _usernameController.text)
             .where('Password', isEqualTo: _passwordController.text)
             .get();
 
         if (adminSnapshot.docs.isNotEmpty) {
-          // If the user is found, navigate to the dashboard
+          // Get the first document (since usernames are unique)
+          DocumentSnapshot adminDoc = adminSnapshot.docs.first;
+
+          // Fetch the document ID
+          String documentId = adminDoc.id;
+
+          // Store the document ID globally in the UserController
+          UserController userController = Get.find();
+          userController.setDocumentId(documentId);
+
+          // Navigate to the dashboard (or the next page)
           Get.offAll(SiteLayout());
         } else {
           // Show error message if no user found
