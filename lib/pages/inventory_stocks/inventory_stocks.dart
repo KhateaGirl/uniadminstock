@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:unistock/constants/style.dart';
 
 class InventoryPage extends StatefulWidget {
@@ -7,147 +8,232 @@ class InventoryPage extends StatefulWidget {
 }
 
 class _InventoryPageState extends State<InventoryPage> {
-  Map<String, Map<String, int>> _stockQuantities = {
-    // Senior High Items
-    'BLOUSE WITH VEST': {'Small': 5, 'Medium': 3, 'Large': 2},
-    'POLO WITH VEST': {'Small': 10, 'Medium': 5, 'Large': 5},
-    'HM SKIRT': {'Small': 8, 'Medium': 5, 'Large': 2},
-    'HS PANTS': {'Small': 10, 'Medium': 10, 'Large': 5},
-    'HRM-CHECKERED PANTS FEMALE': {'Small': 5, 'Medium': 10, 'Large': 15},
-    'HRM CHEF\'S POLO FEMALE': {'Small': 8, 'Medium': 6, 'Large': 4},
-    'HRM CHEF\'S POLO MALE': {'Small': 7, 'Medium': 10, 'Large': 5},
-    'HRM-CHECKERED PANTS MALE': {'Small': 5, 'Medium': 12, 'Large': 10},
-    'HS PE SHIRT': {'Small': 6, 'Medium': 4, 'Large': 2},
-    'HS PE PANTS': {'Small': 10, 'Medium': 5, 'Large': 4},
-    // College Items
-    'IT 3/4 BLOUSE': {'Small': 5, 'Medium': 5, 'Large': 4},
-    'IT 3/4 POLO': {'Small': 8, 'Medium': 5, 'Large': 3},
-    'FEMALE BLAZER': {'Small': 4, 'Medium': 2, 'Large': 2},
-    'MALE BLAZER': {'Small': 5, 'Medium': 3, 'Large': 2},
-    'HRM BLOUSE': {'Small': 6, 'Medium': 4, 'Large': 2},
-    'HRM POLO': {'Small': 6, 'Medium': 4, 'Large': 2},
-    'HRM VEST FEMALE': {'Small': 2, 'Medium': 2, 'Large': 2},
-    'HRM VEST MALE': {'Small': 3, 'Medium': 3, 'Large': 2},
-    'RTW SKIRT': {'Small': 10, 'Medium': 6, 'Large': 4},
-    'RTW FEMALE PANTS': {'Small': 12, 'Medium': 8, 'Large': 5},
-    'RTW MALE PANTS': {'Small': 15, 'Medium': 10, 'Large': 5},
-    'CHEF\'S POLO': {'Small': 9, 'Medium': 6, 'Large': 3},
-    'CHEF\'S PANTS': {'Small': 11, 'Medium': 7, 'Large': 4},
-    'TM FEMALE BLOUSE': {'Small': 7, 'Medium': 5, 'Large': 3},
-    'TM FEMALE BLAZER': {'Small': 5, 'Medium': 3, 'Large': 2},
-    'TM SKIRT': {'Small': 10, 'Medium': 6, 'Large': 4},
-    'TM MALE POLO': {'Small': 13, 'Medium': 8, 'Large': 4},
-    'TM MALE BLAZER': {'Small': 4, 'Medium': 3, 'Large': 1},
-    'BM/AB COMM BLOUSE': {'Small': 7, 'Medium': 5, 'Large': 3},
-    'BM/AB COMM POLO': {'Small': 8, 'Medium': 5, 'Large': 3},
-    'PE SHIRT': {'Small': 6, 'Medium': 4, 'Large': 2},
-    'PE PANTS': {'Small': 10, 'Medium': 5, 'Large': 4},
-    'WASHDAY SHIRT': {'Small': 5, 'Medium': 3, 'Large': 2},
-    'NSTP SHIRT': {'Small': 6, 'Medium': 4, 'Large': 2},
-    'NECKTIE': {'AB/COMM': 5, 'BM': 6, 'TM': 5, 'CRIM': 7,},
-    'SCARF': {'AB/COMM': 30, 'BM': 6, 'TM': 5},
-    'FABRIC SPECIAL SIZE': {'CHEF\'S PANTS FABRIC 2.5 yards': 8},
-  };
+  FirebaseFirestore firestore = FirebaseFirestore.instance;
 
+  Map<String, Map<String, int>> _seniorHighStockQuantities = {};
+  Map<String, Map<String, int>> _collegeStockQuantities = {};
+  bool _loading = true;
   bool _showConfirmButton = false;
 
-  List<String> _getItems() {
-    return [
-      // Senior High Items
-      'BLOUSE WITH VEST',
-      'POLO WITH VEST',
-      'HM SKIRT',
-      'HS PANTS',
-      'HRM-CHECKERED PANTS FEMALE',
-      'HRM CHEF\'S POLO FEMALE',
-      'HRM CHEF\'S POLO MALE',
-      'HRM-CHECKERED PANTS MALE',
-      'HS PE SHIRT',
-      'HS PE PANTS',
-      // College Items
-      'IT 3/4 BLOUSE',
-      'IT 3/4 POLO',
-      'FEMALE BLAZER',
-      'MALE BLAZER',
-      'HRM BLOUSE',
-      'HRM POLO',
-      'HRM VEST FEMALE',
-      'HRM VEST MALE',
-      'RTW SKIRT',
-      'RTW FEMALE PANTS',
-      'RTW MALE PANTS',
-      'CHEF\'S POLO',
-      'CHEF\'S PANTS',
-      'TM FEMALE BLOUSE',
-      'TM FEMALE BLAZER',
-      'TM SKIRT',
-      'TM MALE POLO',
-      'TM MALE BLAZER',
-      'BM/AB COMM BLOUSE',
-      'BM/AB COMM POLO',
-      'PE SHIRT',
-      'PE PANTS',
-      'WASHDAY SHIRT',
-      'NSTP SHIRT',
-      'NECKTIE',
-      'SCARF',
-      'FABRIC SPECIAL SIZE',
-    ];
+  final List<String> _allowedCustomSizes = ['XL', '2XL', '3XL', '4XL', '5XL', '6XL', '7XL'];
+  final List<String> _excludedItems = ['Necktie', 'Scarf']; // Items to exclude from adding custom sizes
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchStockData();
   }
 
-  List<String> _getSizeOptions(String item) {
-    switch (item) {
-      case 'CHEF\'S POLO':
-      case 'CHEF\'S PANTS':
-      case 'NSTP SHIRT':
-      case 'HS PE SHIRT':
-        return ['XS', 'Small', 'Medium', 'Large', 'XL', '2XL', '3XL', '4XL', '5XL'];
-      case 'TM FEMALE BLOUSE':
-      case 'TM FEMALE BLAZER':
-      case 'TM SKIRT':
-        return ['Small', 'Medium', 'Large', 'XL', '2XL', '3XL'];
-      case 'TM MALE POLO':
-      case 'TM MALE BLAZER':
-        return ['Small', 'Medium', 'Large', 'XL'];
-      case 'PE SHIRT':
-      case 'PE PANTS':
-      case 'WASHDAY SHIRT':
-        return ['XS', 'Small', 'Medium', 'Large', 'XL', '2XL', '3XL', '4XL', '5XL'];
-      case 'NECKTIE':
-        return ['AB/COMM', 'BM', 'TM', 'CRIM'];
-      case 'SCARF':
-        return ['AB/COMM', 'BM', 'TM'];
-      case 'FABRIC SPECIAL SIZE':
-        return ['CHEF\'S PANTS FABRIC 2.5 yards',
-          'CHEF\'S POLO FABRIC 2.5 yards',
-          'HRM FABRIC 3 yards',
-          'HRM VEST FABRIC 2.5 yards',
-          'IT FABRIC 2.5 yards',
-          'ABCOMM/BM FABRIC 2.5 yards',
-          'PANTS FABRIC 2.5 yards',
-          'BLAZER FABRIC 2.75 yards',
-          'TOURISM BLAZER FABRIC 2.5 yards',
-          'TOURISM PANTS FABRIC 2.5 yards',
-          'TOURISM POLO FABRIC 2.5 yards'];
-      case 'BLOUSE WITH VEST':
-      case 'POLO WITH VEST':
-        return ['Small', 'Medium', 'Large', 'XL', '2XL', '3XL', '4XL', '5XL', '6XL', '7XL'];
-      case 'HM SKIRT':
-        return ['Small', 'Medium', 'Large', 'XL', '2XL', '3XL', '4XL', '5XL'];
-      case 'HS PANTS':
-        return ['Small', 'Medium', 'Large', 'XL', '2XL', '3XL'];
-      case 'HRM-CHECKERED PANTS FEMALE':
-        return ['Medium', 'Large', 'XL', '2XL', '3XL'];
-      case 'HRM CHEF\'S POLO FEMALE':
-      case 'HRM CHEF\'S POLO MALE':
-      case 'HRM-CHECKERED PANTS MALE':
-        return ['XS', 'Small', 'Medium', 'Large', 'XL', '2XL', '3XL'];
-      default:
-        return ['Small', 'Medium', 'Large', 'XL', '2XL', '3XL'];
+  // Fetch stock data from Firestore
+  Future<void> _fetchStockData() async {
+    try {
+      // Fetch Senior High items
+      QuerySnapshot seniorHighSnapshot = await firestore
+          .collection('Inventory_stock')
+          .doc('Senior_high_items')
+          .collection('Items')
+          .get();
+
+      // Fetch College items
+      QuerySnapshot collegeSnapshot = await firestore
+          .collection('Inventory_stock')
+          .doc('College_items')
+          .collection('Items')
+          .get();
+
+      Map<String, Map<String, int>> seniorHighData = {};
+      Map<String, Map<String, int>> collegeData = {};
+
+      // Process Senior High items
+      seniorHighSnapshot.docs.forEach((doc) {
+        seniorHighData[doc.id] = Map<String, int>.from(doc.data() as Map);
+      });
+
+      // Process College items
+      collegeSnapshot.docs.forEach((doc) {
+        collegeData[doc.id] = Map<String, int>.from(doc.data() as Map);
+      });
+
+      setState(() {
+        _seniorHighStockQuantities = seniorHighData;
+        _collegeStockQuantities = collegeData;
+        _loading = false;
+      });
+    } catch (e) {
+      print('Failed to fetch inventory data: $e');
     }
   }
 
-  Widget _buildItemCard(String item) {
+  // Function to increment stock quantity
+  Future<void> _incrementStock(String item, String size, bool isSeniorHigh) async {
+    try {
+      String collection = isSeniorHigh ? 'Senior_high_items' : 'College_items';
+      int currentStock = isSeniorHigh
+          ? (_seniorHighStockQuantities[item]?[size] ?? 0)
+          : (_collegeStockQuantities[item]?[size] ?? 0);
+      int newStock = currentStock + 1;
+
+      // Update the stock in Firestore
+      await firestore
+          .collection('Inventory_stock')
+          .doc(collection)
+          .collection('Items')
+          .doc(item)
+          .update({size: newStock});
+
+      // Update the UI state
+      setState(() {
+        if (isSeniorHigh) {
+          _seniorHighStockQuantities[item]?[size] = newStock;
+        } else {
+          _collegeStockQuantities[item]?[size] = newStock;
+        }
+        _showConfirmButton = true;
+      });
+    } catch (e) {
+      print('Failed to update stock: $e');
+    }
+  }
+
+  // Function to decrement stock quantity
+  Future<void> _decrementStock(String item, String size, bool isSeniorHigh) async {
+    try {
+      String collection = isSeniorHigh ? 'Senior_high_items' : 'College_items';
+      int currentStock = isSeniorHigh
+          ? (_seniorHighStockQuantities[item]?[size] ?? 0)
+          : (_collegeStockQuantities[item]?[size] ?? 0);
+      if (currentStock > 0) {
+        int newStock = currentStock - 1;
+
+        // Update the stock in Firestore
+        await firestore
+            .collection('Inventory_stock')
+            .doc(collection)
+            .collection('Items')
+            .doc(item)
+            .update({size: newStock});
+
+        // Update the UI state
+        setState(() {
+          if (isSeniorHigh) {
+            _seniorHighStockQuantities[item]?[size] = newStock;
+          } else {
+            _collegeStockQuantities[item]?[size] = newStock;
+          }
+          _showConfirmButton = true;
+        });
+      }
+    } catch (e) {
+      print('Failed to update stock: $e');
+    }
+  }
+
+  // Function to add custom size and quantity
+  Future<void> _addCustomSize(String item, String customSize, int quantity, bool isSeniorHigh) async {
+    try {
+      String collection = isSeniorHigh ? 'Senior_high_items' : 'College_items';
+
+      // Update Firestore with the custom size and quantity
+      await firestore
+          .collection('Inventory_stock')
+          .doc(collection)
+          .collection('Items')
+          .doc(item)
+          .update({customSize: quantity});
+
+      // Update the UI state
+      setState(() {
+        if (isSeniorHigh) {
+          _seniorHighStockQuantities[item]?[customSize] = quantity;
+        } else {
+          _collegeStockQuantities[item]?[customSize] = quantity;
+        }
+        _showConfirmButton = true;
+      });
+    } catch (e) {
+      print('Failed to add custom size: $e');
+    }
+  }
+
+  // Function to show a dialog for adding a custom size
+  void _showCustomSizeDialog(String item, bool isSeniorHigh) {
+    String customSize = 'XL';
+    int customQuantity = 1;
+
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Text('Add Custom Size'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Dropdown for custom size selection
+              DropdownButton<String>(
+                value: customSize,
+                onChanged: (String? newValue) {
+                  setState(() {
+                    customSize = newValue!;
+                  });
+                },
+                items: _allowedCustomSizes.map<DropdownMenuItem<String>>((String value) {
+                  return DropdownMenuItem<String>(
+                    value: value,
+                    child: Text(value),
+                  );
+                }).toList(),
+              ),
+              SizedBox(height: 10),
+              Row(
+                children: [
+                  Text('Quantity:'),
+                  SizedBox(width: 10),
+                  IconButton(
+                    icon: Icon(Icons.remove),
+                    onPressed: () {
+                      setState(() {
+                        if (customQuantity > 1) customQuantity--;
+                      });
+                    },
+                  ),
+                  Text('$customQuantity'),
+                  IconButton(
+                    icon: Icon(Icons.add),
+                    onPressed: () {
+                      setState(() {
+                        customQuantity++;
+                      });
+                    },
+                  ),
+                ],
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+              },
+              child: Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                _addCustomSize(item, customSize, customQuantity, isSeniorHigh);
+                Navigator.of(context).pop();
+              },
+              child: Text('Add'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  // Build item card with custom size option
+  Widget _buildItemCard(String item, bool isSeniorHigh) {
+    Map<String, Map<String, int>> stockQuantities =
+    isSeniorHigh ? _seniorHighStockQuantities : _collegeStockQuantities;
+
     return Container(
       padding: EdgeInsets.all(8),
       decoration: BoxDecoration(
@@ -165,8 +251,8 @@ class _InventoryPageState extends State<InventoryPage> {
             ),
             textAlign: TextAlign.center,
           ),
-          SizedBox(height: 8),
-          ..._getSizeOptions(item).map((size) {
+          SizedBox(height: 5),
+          ...?stockQuantities[item]?.keys.map((size) {
             return Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
@@ -178,32 +264,32 @@ class _InventoryPageState extends State<InventoryPage> {
                 IconButton(
                   icon: Icon(Icons.remove),
                   onPressed: () {
-                    setState(() {
-                      if ((_stockQuantities[item]?[size] ?? 0) > 0) {
-                        _stockQuantities[item]?[size] = _stockQuantities[item]![size]! - 1;
-                        _showConfirmButton = true;
-                      }
-                    });
+                    _decrementStock(item, size, isSeniorHigh);
                   },
                 ),
                 Container(
                   width: 18,
-                  child: Text('${_stockQuantities[item]?[size] ?? 0}',
-                      style: TextStyle(fontWeight: FontWeight.bold,
-                          color: active)),
+                  child: Text('${stockQuantities[item]?[size] ?? 0}',
+                      style: TextStyle(fontWeight: FontWeight.bold, color: active)),
                 ),
                 IconButton(
                   icon: Icon(Icons.add),
                   onPressed: () {
-                    setState(() {
-                      _stockQuantities[item]?[size] = (_stockQuantities[item]?[size] ?? 0) + 1;
-                      _showConfirmButton = true;
-                    });
+                    _incrementStock(item, size, isSeniorHigh);
                   },
                 ),
               ],
             );
           }).toList(),
+          SizedBox(height: 8),
+          // Add custom size button only if the item is not in the excluded list
+          if (!_excludedItems.contains(item))
+            ElevatedButton(
+              onPressed: () {
+                _showCustomSizeDialog(item, isSeniorHigh);
+              },
+              child: Text('Add Custom Size'),
+            ),
         ],
       ),
     );
@@ -256,6 +342,7 @@ class _InventoryPageState extends State<InventoryPage> {
             Expanded(
               child: ListView(
                 children: [
+                  // Senior High Inventory Section
                   Text(
                     'Senior High Inventory',
                     style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
@@ -266,12 +353,14 @@ class _InventoryPageState extends State<InventoryPage> {
                     physics: NeverScrollableScrollPhysics(),
                     mainAxisSpacing: 8,
                     crossAxisSpacing: 8,
-                    childAspectRatio: 0.8, // Adjust child aspect ratio to prevent overflow
-                    children: _getItems().take(10).map((item) {
-                      return _buildItemCard(item);
+                    childAspectRatio: 0.8,
+                    children: _seniorHighStockQuantities.keys.map((item) {
+                      return _buildItemCard(item, true);
                     }).toList(),
                   ),
                   SizedBox(height: 16),
+
+                  // College Inventory Section
                   Text(
                     'College Inventory',
                     style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
@@ -282,9 +371,9 @@ class _InventoryPageState extends State<InventoryPage> {
                     physics: NeverScrollableScrollPhysics(),
                     mainAxisSpacing: 8,
                     crossAxisSpacing: 8,
-                    childAspectRatio: 0.8, // Adjust child aspect ratio to prevent overflow
-                    children: _getItems().skip(10).map((item) {
-                      return _buildItemCard(item);
+                    childAspectRatio: 0.8,
+                    children: _collegeStockQuantities.keys.map((item) {
+                      return _buildItemCard(item, false);
                     }).toList(),
                   ),
                 ],
@@ -295,7 +384,7 @@ class _InventoryPageState extends State<InventoryPage> {
                 child: ElevatedButton(
                   onPressed: _confirmChanges,
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.blue, // Replace with your desired color
+                    backgroundColor: Colors.blue,
                     padding: EdgeInsets.symmetric(horizontal: 32, vertical: 16),
                   ),
                   child: Text(
