@@ -6,6 +6,15 @@ import 'package:unistock/controllers/menu_controller.dart';
 import 'package:unistock/controllers/navigation_controller.dart';
 import 'package:unistock/widgets/log_in.dart';
 
+
+class UserController extends GetxController {
+  var documentId = ''.obs;  // Observable variable to store the document ID
+
+  void setDocumentId(String id) {
+    documentId.value = id;  // Update the document ID
+  }
+}
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(
@@ -14,14 +23,15 @@ void main() async {
           projectId: "unistock-266e8",
           messagingSenderId: "735169171366",
           appId: "1:735169171366:web:9fabc735b0168d3fae0967"));
+
   Get.put(CustomMenuController());
   Get.put(NavigationController());
+  Get.put(UserController());  // Initialize the UserController globally
+
   runApp(MyApp());
 }
 
 class MyApp extends StatelessWidget {
-  const MyApp({Key? key}) : super(key: key);
-
   @override
   Widget build(BuildContext context) {
     return GetMaterialApp(
@@ -35,7 +45,7 @@ class MyApp extends StatelessWidget {
             TargetPlatform.android: FadeUpwardsPageTransitionsBuilder()
           }),
           primaryColor: Colors.blue),
-      home: LoginPage(),
+      home: LoginPage(),  // Starting page is the login page
     );
   }
 }

@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:get/get.dart';
+import 'package:unistock/constants/controllers.dart';
 import 'package:unistock/constants/style.dart';
 import 'package:unistock/helpers/responsiveness.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:unistock/routing/routes.dart';
 import 'package:unistock/widgets/custom_text.dart';
 
 AppBar topNavigation(BuildContext context, GlobalKey<ScaffoldState> key) => AppBar(
@@ -40,7 +43,9 @@ AppBar topNavigation(BuildContext context, GlobalKey<ScaffoldState> key) => AppB
               Icons.settings,
               color: Colors.white.withOpacity(.9),
             ),
-            onPressed: () {},
+            onPressed: () {
+              navigationController.navigateTo(SettingsPageRoute);  // This will use the navigator's global key to push the SettingsPageRoute
+            },
           ),
           Stack(
             children: [

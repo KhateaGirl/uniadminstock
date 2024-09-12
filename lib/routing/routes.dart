@@ -5,6 +5,7 @@ const SalesHistoryPageRoute = "Sales History";
 const SalesStatisticsPageRoute = "Sales Statistics";
 const WalkinPageRoute = "Walk-In";
 const AuthenticationPageRoute = "Authentication";
+const SettingsPageRoute = "Settings";
 
 List sideMenuItems = [
   OverviewPageRoute,
