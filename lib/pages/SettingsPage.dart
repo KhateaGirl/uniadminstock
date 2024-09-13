@@ -1,10 +1,12 @@
 import 'dart:io';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart'; // For kIsWeb
 import 'package:image_picker/image_picker.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:get/get.dart';
-import 'package:unistock/main.dart';
+import 'dart:typed_data'; // For Flutter Web (handling bytes)
+import 'package:unistock/main.dart'; // Import your main.dart for UserController
 
 class SettingsPage extends StatefulWidget {
   @override
@@ -17,14 +19,52 @@ class _SettingsPageState extends State<SettingsPage> {
   TextEditingController _usernameController = TextEditingController();
   TextEditingController _passwordController = TextEditingController();
 
-  File? _imageFile;  // To hold the image file
-  final picker = ImagePicker();  // For image picking
-  String? _imageUrl;  // To store the image URL
+  File? _imageFile;
+  Uint8List? _webImage; // For web-based image upload
+  final picker = ImagePicker();
+  String? _imageUrl;
+  String? _selectedItem; // Selected item from the dropdown
+  List<String> _items = []; // Items to populate the dropdown
+  bool _isLoading = false; // Loading indicator for fetching items
 
   @override
   void initState() {
     super.initState();
     _fetchExistingImage();
+    _fetchItems(); // Fetch items on initialization
+  }
+
+  // Function to update admin credentials (username and password) in Firestore
+  Future<void> updateAdminCredentials() async {
+    String username = _usernameController.text;
+    String password = _passwordController.text;
+
+    if (_formKey.currentState?.validate() == true) {
+      try {
+        // Assuming the logged-in admin's document ID is stored in the UserController
+        UserController userController = Get.find();
+        String documentId = userController.documentId.value;
+
+        // Update the credentials in Firestore (admin collection)
+        await FirebaseFirestore.instance.collection('admin').doc(documentId).update({
+          'Username': username,
+          'Password': password,
+        });
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Credentials updated successfully!")),
+        );
+      } catch (e) {
+        print("Error updating credentials: $e");
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Failed to update credentials: $e")),
+        );
+      }
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Please fill in the form correctly.")),
+      );
+    }
   }
 
   // Fetch the existing image URL from Firestore
@@ -42,48 +82,111 @@ class _SettingsPageState extends State<SettingsPage> {
     });
   }
 
+  // Fetch items from the Firestore subcollection (College_items or Senior_high_items)
+  Future<void> _fetchItems() async {
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      String parentCollection = 'College_items'; // Change to 'Senior_high_items' as needed
+      QuerySnapshot querySnapshot = await FirebaseFirestore.instance
+          .collection('Inventory_stock')
+          .doc(parentCollection)
+          .collection('Items')
+          .get();
+
+      List<String> fetchedItems = querySnapshot.docs.map((doc) {
+        return doc.id; // Assuming each document has an 'id' field for dropdown reference
+      }).toList();
+
+      setState(() {
+        _items = fetchedItems;
+      });
+    } catch (e) {
+      print("Error fetching items: $e");
+    } finally {
+      setState(() {
+        _isLoading = false;
+      });
+    }
+  }
+
   // Function to pick an image from the gallery
   Future<void> _pickImage() async {
     final pickedFile = await picker.pickImage(source: ImageSource.gallery);
+
     if (pickedFile != null) {
-      setState(() {
-        _imageFile = File(pickedFile.path);
-      });
+      if (kIsWeb) {
+        // Web: Read image as bytes
+        setState(() async {
+          _webImage = await pickedFile.readAsBytes();
+        });
+      } else {
+        // Mobile/Desktop: Use File class
+        setState(() {
+          _imageFile = File(pickedFile.path);
+        });
+      }
     }
   }
 
   // Function to upload the image to Firebase Storage
   Future<String> _uploadImageToStorage(String documentId) async {
     try {
-      if (_imageFile == null) throw 'No image selected';
+      if (kIsWeb && _webImage != null) {
+        // For Flutter Web, we use the byte data to upload
+        Reference storageRef = FirebaseStorage.instance
+            .ref()
+            .child('admin_images/$documentId');
 
-      Reference storageRef = FirebaseStorage.instance
-          .ref()
-          .child('admin_images/$documentId');  // Store with the document ID
+        UploadTask uploadTask = storageRef.putData(_webImage!);
+        TaskSnapshot taskSnapshot = await uploadTask;
 
-      UploadTask uploadTask = storageRef.putFile(_imageFile!);
-      TaskSnapshot taskSnapshot = await uploadTask;
+        return await taskSnapshot.ref.getDownloadURL();
+      } else if (_imageFile != null) {
+        // For mobile and desktop
+        Reference storageRef = FirebaseStorage.instance
+            .ref()
+            .child('admin_images/$documentId');
 
-      return await taskSnapshot.ref.getDownloadURL();
+        UploadTask uploadTask = storageRef.putFile(_imageFile!);
+        TaskSnapshot taskSnapshot = await uploadTask;
+
+        return await taskSnapshot.ref.getDownloadURL();
+      } else {
+        throw 'No image selected';
+      }
     } catch (e) {
       print("Error uploading image: $e");
       return '';
     }
   }
 
-  // Function to save the image URL to Firestore
+  // Function to save the image URL to Firestore (admin collection and the selected item)
   Future<void> _saveImageToFirestore(String imageUrl) async {
     UserController userController = Get.find();
     String documentId = userController.documentId.value;
 
+    // Save to 'admin' collection
     await FirebaseFirestore.instance
         .collection('admin')
         .doc(documentId)
         .set({'image_url': imageUrl}, SetOptions(merge: true));
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text("Image uploaded successfully!")),
-    );
+    // Save to the selected item in the 'Items' subcollection
+    if (_selectedItem != null) {
+      await FirebaseFirestore.instance
+          .collection('Inventory_stock')
+          .doc('College_items') // or 'Senior_high_items' based on logic
+          .collection('Items')
+          .doc(_selectedItem)
+          .set({'image_url': imageUrl}, SetOptions(merge: true));
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Image applied to item successfully!")),
+      );
+    }
   }
 
   // Function to delete image from Firestore and Storage
@@ -91,11 +194,13 @@ class _SettingsPageState extends State<SettingsPage> {
     UserController userController = Get.find();
     String documentId = userController.documentId.value;
 
+    // Delete from 'admin' collection
     await FirebaseFirestore.instance
         .collection('admin')
         .doc(documentId)
         .update({'image_url': FieldValue.delete()});
 
+    // Delete from Storage
     await FirebaseStorage.instance
         .ref()
         .child('admin_images/$documentId')
@@ -110,8 +215,22 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 
-  // Function to upload and save the image
+  // Function to upload and save the image to both the admin collection and the selected item
   Future<void> _uploadAndSaveImage() async {
+    if (_imageFile == null && _webImage == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Please select an image first.")),
+      );
+      return;
+    }
+
+    if (_selectedItem == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Please select an item first.")),
+      );
+      return;
+    }
+
     UserController userController = Get.find();
     String documentId = userController.documentId.value;
 
@@ -120,41 +239,44 @@ class _SettingsPageState extends State<SettingsPage> {
       setState(() {
         _imageUrl = imageUrl;
       });
-      _saveImageToFirestore(imageUrl);
+
+      // Save image URL to both admin collection and the selected item
+      await _saveImageToFirestore(imageUrl);
     }
   }
 
-  // Function to update admin credentials
-  void updateAdminCredentials() async {
-    UserController userController = Get.find();  // Get the UserController
-    String documentId = userController.documentId.value;  // Retrieve the document ID
-
-    if (documentId.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Error: No document ID found")),
+  // Method to build the image display widget depending on the platform (web vs other)
+  Widget _buildImageDisplay() {
+    if (kIsWeb) {
+      // Display the web image as bytes
+      return _webImage != null
+          ? Image.memory(
+        _webImage!,
+        height: 150,
+        width: 150,
+        fit: BoxFit.cover,
+      )
+          : Container(
+        height: 150,
+        width: 150,
+        color: Colors.grey[300],
+        child: Center(child: Text('No image')),
       );
-      return;
-    }
-
-    // Proceed with updating credentials in Firestore
-    if (_formKey.currentState!.validate()) {
-      try {
-        await FirebaseFirestore.instance
-            .collection('admin')
-            .doc(documentId)  // Use the stored document ID from the UserController
-            .update({
-          'Username': _usernameController.text,
-          'Password': _passwordController.text,
-        });
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Credentials updated successfully!")),
-        );
-      } catch (e) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Error updating credentials: $e")),
-        );
-      }
+    } else {
+      // For mobile or desktop
+      return _imageFile != null
+          ? Image.file(
+        _imageFile!,
+        height: 150,
+        width: 150,
+        fit: BoxFit.cover,
+      )
+          : Container(
+        height: 150,
+        width: 150,
+        color: Colors.grey[300],
+        child: Center(child: Text('No image')),
+      );
     }
   }
 
@@ -172,9 +294,74 @@ class _SettingsPageState extends State<SettingsPage> {
           child: SingleChildScrollView(
             child: Column(
               children: <Widget>[
+                // Image upload section
+                Text('Upload Image to Associate with an Item',
+                    style: TextStyle(fontWeight: FontWeight.bold)),
+                SizedBox(height: 10),
+                // Row for image and dropdown
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Display the image
+                    _buildImageDisplay(),
+                    SizedBox(width: 20),
+                    // Dropdown for items
+                    Expanded(
+                      child: _isLoading
+                          ? CircularProgressIndicator() // Show loading indicator while fetching items
+                          : DropdownButtonFormField<String>(
+                        decoration: InputDecoration(labelText: 'Select Item'),
+                        value: _selectedItem,
+                        items: _items.map((item) {
+                          return DropdownMenuItem<String>(
+                            value: item,
+                            child: Text(item),
+                          );
+                        }).toList(),
+                        onChanged: (newValue) {
+                          setState(() {
+                            _selectedItem = newValue;
+                          });
+                        },
+                        validator: (value) =>
+                        value == null ? 'Please select an item' : null,
+                      ),
+                    ),
+                  ],
+                ),
+                SizedBox(height: 20),
+
+                // Image Picker Button
+                ElevatedButton(
+                  onPressed: _pickImage,
+                  child: Text('Select Image'),
+                ),
+                if (_imageFile != null || _webImage != null) ...[
+                  SizedBox(height: 20),
+                  _buildImageDisplay(),
+                  SizedBox(height: 20),
+                  ElevatedButton(
+                    onPressed: _uploadAndSaveImage,
+                    child: Text('Upload and Apply Image'),
+                  ),
+                ],
+                SizedBox(height: 20),
+
+                // Separator line or space
+                Divider(thickness: 2),
+                SizedBox(height: 20),
+
+                // Credentials update section
+                Text('Update Admin Credentials',
+                    style: TextStyle(fontWeight: FontWeight.bold)),
+                SizedBox(height: 10),
+
+                // Username TextField
                 TextFormField(
                   controller: _usernameController,
-                  decoration: InputDecoration(labelText: 'Username'),
+                  decoration: InputDecoration(
+                    labelText: 'Username',
+                  ),
                   validator: (value) {
                     if (value == null || value.isEmpty) {
                       return 'Please enter a username';
@@ -183,9 +370,13 @@ class _SettingsPageState extends State<SettingsPage> {
                   },
                 ),
                 SizedBox(height: 20),
+
+                // Password TextField
                 TextFormField(
                   controller: _passwordController,
-                  decoration: InputDecoration(labelText: 'Password'),
+                  decoration: InputDecoration(
+                    labelText: 'Password',
+                  ),
                   obscureText: true,
                   validator: (value) {
                     if (value == null || value.isEmpty) {
@@ -196,37 +387,7 @@ class _SettingsPageState extends State<SettingsPage> {
                 ),
                 SizedBox(height: 20),
 
-                // Display the image or the placeholder if there's no image
-                _imageUrl != null
-                    ? Column(
-                  children: [
-                    Image.network(_imageUrl!, height: 150),
-                    SizedBox(height: 20),
-                    ElevatedButton(
-                      onPressed: _deleteImage,
-                      child: Text("Remove Image"),
-                    ),
-                  ],
-                )
-                    : Text('No image uploaded.'),
-                SizedBox(height: 20),
-
-                // Image Picker Button
-                ElevatedButton(
-                  onPressed: _pickImage,
-                  child: Text('Select Image'),
-                ),
-                if (_imageFile != null) ...[
-                  SizedBox(height: 20),
-                  Image.file(_imageFile!, height: 150),  // Display selected image
-                  SizedBox(height: 20),
-                  ElevatedButton(
-                    onPressed: _uploadAndSaveImage,
-                    child: Text('Upload Image'),
-                  ),
-                ],
-                SizedBox(height: 20),
-
+                // Credentials Update Button
                 ElevatedButton(
                   onPressed: updateAdminCredentials,
                   child: Text('Update Credentials'),
