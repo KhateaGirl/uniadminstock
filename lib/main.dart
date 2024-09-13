@@ -6,7 +6,6 @@ import 'package:unistock/controllers/menu_controller.dart';
 import 'package:unistock/controllers/navigation_controller.dart';
 import 'package:unistock/widgets/log_in.dart';
 
-
 class UserController extends GetxController {
   var documentId = ''.obs;  // Observable variable to store the document ID
 
@@ -17,12 +16,16 @@ class UserController extends GetxController {
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
   await Firebase.initializeApp(
       options: FirebaseOptions(
-          apiKey: "AIzaSyD2aSmLHziXSvApGm8DSUGgLj0Wig8J4DI",
-          projectId: "unistock-266e8",
-          messagingSenderId: "735169171366",
-          appId: "1:735169171366:web:9fabc735b0168d3fae0967"));
+        apiKey: "AIzaSyD2aSmLHziXSvApGm8DSUGgLj0Wig8J4DI",
+        projectId: "unistock-266e8",
+        messagingSenderId: "735169171366",
+        appId: "1:735169171366:web:9fabc735b0168d3fae0967",
+        storageBucket: "unistock-266e8.appspot.com", // Add the storage bucket here
+      )
+  );
 
   Get.put(CustomMenuController());
   Get.put(NavigationController());

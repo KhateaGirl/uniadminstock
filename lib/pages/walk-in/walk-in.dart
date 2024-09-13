@@ -1,4 +1,3 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -38,217 +37,6 @@ class _MainWalkInPageState extends State<WalkinPage> {
         );
       }).toList(),
     ];
-  }
-
-  void _submit() async {
-    if (_formKey.currentState!.validate()) {
-      // Get the student name and student number from the controllers
-      String enteredName = _nameController.text.trim();
-      String enteredStudentNumber = _studentNumberController.text.trim();
-
-      // Variables to track if there are any selected items and their quantities
-      bool hasSelectedItem = false;
-      bool hasMissingSelection = false;
-      bool hasMissingQuantity = false;
-      List<String> missingSelectionItems = [];
-      List<String> missingQuantityItems = [];
-
-      // Iterate through selected sizes and quantities to check if items were selected and if quantities are missing
-      _selectedSizes.forEach((subcategory, size) {
-        int quantity = _selectedQuantities[subcategory] ?? 0;
-
-        // Check if a size/item is selected
-        if (size != null && size != 'None') {
-          hasSelectedItem = true;  // At least one item has been selected
-        }
-
-        // Check if quantity is set without selecting an item
-        if (size == null || size == 'None') {
-          hasMissingSelection = true;
-          missingSelectionItems.add(subcategory);  // Add item with missing selection
-        }
-
-        // Check if the quantity is missing for selected items
-        if (quantity == 0 && (size != null && size != 'None')) {
-          hasMissingQuantity = true;
-          missingQuantityItems.add(subcategory);  // Add item with missing quantity
-        }
-      });
-
-      // If no items were selected at all, show a dialog and prevent submission
-      if (!hasSelectedItem) {
-        Get.snackbar(
-          'Error',
-          'Please select at least one item before submitting the order.',
-          snackPosition: SnackPosition.BOTTOM,
-          backgroundColor: Colors.red,
-          colorText: Colors.white,
-        );
-        return; // Stop further execution if no items were selected
-      }
-
-      // Show dialog if there are items with missing selection or quantity
-      if (hasMissingSelection || hasMissingQuantity) {
-        showDialog(
-          context: context,
-          builder: (BuildContext context) {
-            return AlertDialog(
-              title: Text('Missing Information'),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  if (hasMissingSelection) ...[
-                    Text('Please select a size for the following items:'),
-                    ...missingSelectionItems.map((item) => Text(item)).toList(),
-                    SizedBox(height: 16),
-                  ],
-                  if (hasMissingQuantity) ...[
-                    Text('Please add a quantity for the following items:'),
-                    ...missingQuantityItems.map((item) => Text(item)).toList(),
-                  ],
-                ],
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () {
-                    Navigator.of(context).pop(); // Close the dialog
-                  },
-                  child: Text('OK'),
-                ),
-              ],
-            );
-          },
-        );
-        return; // Stop further execution if there are missing selections or quantities
-      }
-
-      // Proceed with the Firestore query to find a matching studentId
-      final QuerySnapshot<Map<String, dynamic>> querySnapshot;
-      try {
-        querySnapshot = await FirebaseFirestore.instance
-            .collection('users')
-            .where('studentId', isEqualTo: enteredStudentNumber)
-            .get();
-
-        if (querySnapshot.docs.isNotEmpty) {
-          // Get the first matching document (assuming studentId is unique)
-          DocumentSnapshot<Map<String, dynamic>> userDoc = querySnapshot.docs.first;
-
-          // Extract the student name from the document
-          String storedName = userDoc.data()?['name'] ?? '';
-
-          // Check if the entered name matches the stored name
-          if (storedName == enteredName) {
-            // Proceed with the order submission process
-            double totalPrice = 0.0;
-            List<String> selectedItems = [];
-
-            _selectedSizes.forEach((subcategory, size) {
-              if (size != null && size != 'None') {
-                double? price = _inventoryData.getPriceOptions(subcategory)?[size];
-                int quantity = _selectedQuantities[subcategory] ?? 0;
-                double itemTotal = (price ?? 0) * quantity;
-                totalPrice += itemTotal;
-                selectedItems.add('$subcategory ($size) x$quantity = ₱${itemTotal.toStringAsFixed(2)}');
-
-                // Add the selected items to the user's cart in Firestore
-                FirebaseFirestore.instance
-                    .collection('users')
-                    .doc(userDoc.id)  // Use the found document ID
-                    .collection('cart')
-                    .add({
-                  'itemLabel': subcategory,
-                  'itemSize': size,
-                  'price': price,
-                  'quantity': quantity,
-                  'status': 'pending',
-                  'timestamp': FieldValue.serverTimestamp(),  // Automatically adds the current timestamp
-                });
-              }
-            });
-
-            Get.snackbar(
-              'Success',
-              'Order submitted successfully!',
-              snackPosition: SnackPosition.BOTTOM,
-              backgroundColor: Colors.green,
-              colorText: Colors.white,
-            );
-
-            // Show the order dialog
-            showDialog(
-              context: context,
-              builder: (BuildContext context) {
-                return AlertDialog(
-                  title: Text('ORDER SLIP', style: TextStyle(fontWeight: FontWeight.bold)),
-                  content: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Text('Name: ${_nameController.text}'),
-                      Text('Student Number: ${_studentNumberController.text}'),
-                      SizedBox(height: 32),
-                      Text('Selected Items:'),
-                      ...selectedItems.map((item) => Text(item)).toList(),
-                      SizedBox(height: 32),
-                      Text(
-                        'Total Price: ₱${totalPrice.toStringAsFixed(2)}',
-                        style: TextStyle(fontWeight: FontWeight.bold),
-                      ),
-                    ],
-                  ),
-                  actions: [
-                    TextButton(
-                      onPressed: () {
-                        Navigator.of(context).pop();
-                        setState(() {
-                          _nameController.clear();
-                          _studentNumberController.clear();
-                          _selectedSizes.clear();
-                          _selectedQuantities.clear();
-                          _selectedCategories.clear();
-                          _selectedCategory = null;
-                          _selectedSubcategory = null;
-                        });
-                      },
-                      child: Text('Close'),
-                    ),
-                  ],
-                );
-              },
-            );
-          } else {
-            // If the name does not match
-            Get.snackbar(
-              'Error',
-              'The name and student number do not match.',
-              snackPosition: SnackPosition.BOTTOM,
-              backgroundColor: Colors.red,
-              colorText: Colors.white,
-            );
-          }
-        } else {
-          // If no user is found with the provided student number
-          Get.snackbar(
-            'Error',
-            'Student number not found in the database.',
-            snackPosition: SnackPosition.BOTTOM,
-            backgroundColor: Colors.red,
-            colorText: Colors.white,
-          );
-        }
-      } catch (e) {
-        // Handle errors, such as network issues or Firestore permission errors
-        Get.snackbar(
-          'Error',
-          'Failed to validate student information: $e',
-          snackPosition: SnackPosition.BOTTOM,
-          backgroundColor: Colors.red,
-          colorText: Colors.white,
-        );
-      }
-    }
   }
 
   @override
@@ -360,6 +148,7 @@ class _MainWalkInPageState extends State<WalkinPage> {
                           fontWeight: FontWeight.bold,
                         ),
                       ),
+                      SizedBox(height: 10),
                       GridView.builder(
                         shrinkWrap: true,
                         physics: NeverScrollableScrollPhysics(),
@@ -367,7 +156,7 @@ class _MainWalkInPageState extends State<WalkinPage> {
                           crossAxisCount: 3,
                           crossAxisSpacing: 8,
                           mainAxisSpacing: 8,
-                          childAspectRatio: 3.5,
+                          childAspectRatio: 4, // Adjust this for better layout
                         ),
                         itemCount: (_inventoryData.getUniformsByCategory(_selectedSubcategory!) ?? []).length,
                         itemBuilder: (context, index) {
@@ -381,16 +170,18 @@ class _MainWalkInPageState extends State<WalkinPage> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.center,
                               children: [
-                                Expanded(
-                                  child: Text(
-                                    item,
-                                    style: TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                      color: active,
-                                      fontSize: 18,
-                                    ),
+                                // Label for the item
+                                Text(
+                                  item,
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    color: active,
+                                    fontSize: 14, // Adjust font size for better fit
                                   ),
+                                  textAlign: TextAlign.center,
                                 ),
+                                SizedBox(height: 4),
+                                // Size dropdown
                                 DropdownButton<String>(
                                   value: _selectedSizes[item],
                                   onChanged: (newSize) {
@@ -403,6 +194,8 @@ class _MainWalkInPageState extends State<WalkinPage> {
                                   },
                                   items: _getSizeOptions(item),
                                 ),
+                                SizedBox(height: 4),
+                                // Quantity controls
                                 Row(
                                   mainAxisAlignment: MainAxisAlignment.center,
                                   children: [
@@ -445,7 +238,9 @@ class _MainWalkInPageState extends State<WalkinPage> {
                   ),
                 SizedBox(height: 24),
                 ElevatedButton(
-                  onPressed: _submit,
+                  onPressed: () {
+                    // Submit action
+                  },
                   style: ElevatedButton.styleFrom(
                     backgroundColor: active,
                     padding: EdgeInsets.symmetric(horizontal: 32, vertical: 16),
