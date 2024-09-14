@@ -5,18 +5,14 @@ import 'package:unistock/widgets/custom_text.dart';
 class ReservationListPage extends StatelessWidget {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
-  // Fetch reservations from all users where status is 'pending'
   Future<List<Map<String, dynamic>>> _fetchAllPendingReservations() async {
     List<Map<String, dynamic>> allPendingReservations = [];
 
-    // Get all users
     QuerySnapshot usersSnapshot = await _firestore.collection('users').get();
 
     for (var userDoc in usersSnapshot.docs) {
-      // Fetch the user's name
-      String userName = userDoc['name'] ?? 'Unknown User'; // Assumes there's a 'name' field in the user document
+      String userName = userDoc['name'] ?? 'Unknown User';
 
-      // For each user, fetch items from the cart collection with status 'pending'
       QuerySnapshot cartSnapshot = await _firestore
           .collection('users')
           .doc(userDoc.id)
@@ -24,15 +20,49 @@ class ReservationListPage extends StatelessWidget {
           .where('status', isEqualTo: 'pending')
           .get();
 
-      // Add each pending item to the allPendingReservations list
       for (var cartDoc in cartSnapshot.docs) {
         Map<String, dynamic> reservationData = cartDoc.data() as Map<String, dynamic>;
-        reservationData['userName'] = userName;  // Add the user's name for reference
+        reservationData['userName'] = userName;
+        reservationData['userId'] = userDoc.id;
+        reservationData['cartId'] = cartDoc.id;
         allPendingReservations.add(reservationData);
       }
     }
 
     return allPendingReservations;
+  }
+
+  Future<void> _approveReservation(Map<String, dynamic> reservation) async {
+    try {
+      DocumentSnapshot cartDoc = await _firestore
+          .collection('users')
+          .doc(reservation['userId'])
+          .collection('cart')
+          .doc(reservation['cartId'])
+          .get();
+
+      Timestamp reservationDate = cartDoc['timestamp'];
+
+      await _firestore
+          .collection('users')
+          .doc(reservation['userId'])
+          .collection('cart')
+          .doc(reservation['cartId'])
+          .update({'status': 'approved'});
+
+      await _firestore.collection('approved_items').add({
+        'reservationDate': reservationDate,
+        'approvalDate': FieldValue.serverTimestamp(),
+        'itemLabel': reservation['itemLabel'],
+        'itemSize': reservation['itemSize'],
+        'quantity': reservation['quantity'],
+        'name': reservation['userName'],
+      });
+
+      print('Reservation approved successfully');
+    } catch (e) {
+      print('Error approving reservation: $e');
+    }
   }
 
   @override
@@ -52,46 +82,61 @@ class ReservationListPage extends StatelessWidget {
               child: CircularProgressIndicator(),
             );
           } else if (snapshot.hasError) {
-            print('Error fetching data: ${snapshot.error}'); // Debug: Print any errors encountered
+            print('Error fetching data: ${snapshot.error}');
             return Center(
               child: CustomText(
                 text: "Error fetching reservations",
               ),
             );
           } else if (snapshot.hasData && snapshot.data!.isEmpty) {
-            print('No pending reservations found'); // Debug: Print if no pending reservations were found
+            print('No pending reservations found');
             return Center(
               child: CustomText(
                 text: "No pending reservations found",
               ),
             );
           } else if (snapshot.hasData) {
-            // Display the list of pending reservations
             final reservations = snapshot.data!;
-            print('Displaying reservations: $reservations'); // Debug: Print the reservations to be displayed
-            return ListView.builder(
-              itemCount: reservations.length,
-              itemBuilder: (context, index) {
-                final reservation = reservations[index];
-                return ListTile(
-                  title: Text(reservation['itemLabel'] ?? 'No label'),
-                  subtitle: Text('Price: ${reservation['price']} | Status: ${reservation['status']}'),
-                  leading: reservation['imagePath'] != null && reservation['imagePath'].isNotEmpty
-                      ? FadeInImage.assetNetwork(
-                    placeholder: 'assets/images/placeholder.png',  // Path to your local placeholder image
-                    image: reservation['imagePath'],
-                    imageErrorBuilder: (context, error, stackTrace) {
-                      // Display default icon if image fails to load
-                      return Icon(Icons.shopping_cart);
-                    },
-                    width: 50,
-                    height: 50,
-                    fit: BoxFit.cover,
-                  )
-                      : Icon(Icons.shopping_cart), // Default Flutter icon if no imagePath is available
-                  trailing: Text('Name: ${reservation['userName']}'), // Display the user's name
-                );
-              },
+            return SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: DataTable(
+                columns: [
+                  DataColumn(label: Text('Item Label')),
+                  DataColumn(label: Text('Price')),
+                  DataColumn(label: Text('Status')),
+                  DataColumn(label: Text('User Name')),
+                  DataColumn(label: Text('Image')),
+                  DataColumn(label: Text('Action')),
+                ],
+                rows: reservations.map((reservation) {
+                  return DataRow(cells: [
+                    DataCell(Text(reservation['itemLabel'] ?? 'No label')),
+                    DataCell(Text(reservation['price'].toString() ?? '0')),
+                    DataCell(Text(reservation['status'] ?? 'No status')),
+                    DataCell(Text(reservation['userName'] ?? 'Unknown User')),
+                    DataCell(
+                      reservation['imagePath'] != null && reservation['imagePath'].isNotEmpty
+                          ? Image.network(
+                        reservation['imagePath'],
+                        width: 50,
+                        height: 50,
+                        errorBuilder: (context, error, stackTrace) {
+                          return Icon(Icons.shopping_cart);
+                        },
+                      )
+                          : Icon(Icons.shopping_cart),
+                    ),
+                    DataCell(
+                      ElevatedButton(
+                        onPressed: () {
+                          _approveReservation(reservation);
+                        },
+                        child: Text('Approve'),
+                      ),
+                    ),
+                  ]);
+                }).toList(),
+              ),
             );
           } else {
             return Center(
