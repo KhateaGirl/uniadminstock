@@ -1,12 +1,12 @@
 import 'dart:io';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart'; // For kIsWeb
+import 'package:flutter/foundation.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:get/get.dart';
-import 'dart:typed_data'; // For Flutter Web (handling bytes)
-import 'package:unistock/main.dart'; // Import your main.dart for UserController
+import 'dart:typed_data';
+import 'package:unistock/main.dart';
 
 class SettingsPage extends StatefulWidget {
   @override
@@ -14,8 +14,7 @@ class SettingsPage extends StatefulWidget {
 }
 
 class _SettingsPageState extends State<SettingsPage> {
-  final _formKey = GlobalKey<FormState>();
-
+  final _formKeyCredentials = GlobalKey<FormState>();  // Separate form key for credentials
   TextEditingController _usernameController = TextEditingController();
   TextEditingController _passwordController = TextEditingController();
 
@@ -36,10 +35,14 @@ class _SettingsPageState extends State<SettingsPage> {
 
   // Function to update admin credentials (username and password) in Firestore
   Future<void> updateAdminCredentials() async {
+    setState(() {
+      _isLoading = true;
+    });
+
     String username = _usernameController.text;
     String password = _passwordController.text;
 
-    if (_formKey.currentState?.validate() == true) {
+    if (_formKeyCredentials.currentState?.validate() == true) {
       try {
         // Assuming the logged-in admin's document ID is stored in the UserController
         UserController userController = Get.find();
@@ -65,6 +68,10 @@ class _SettingsPageState extends State<SettingsPage> {
         SnackBar(content: Text("Please fill in the form correctly.")),
       );
     }
+
+    setState(() {
+      _isLoading = false;
+    });
   }
 
   // Fetch the existing image URL from Firestore
@@ -189,59 +196,45 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
-  // Function to delete image from Firestore and Storage
-  Future<void> _deleteImage() async {
-    UserController userController = Get.find();
-    String documentId = userController.documentId.value;
-
-    // Delete from 'admin' collection
-    await FirebaseFirestore.instance
-        .collection('admin')
-        .doc(documentId)
-        .update({'image_url': FieldValue.delete()});
-
-    // Delete from Storage
-    await FirebaseStorage.instance
-        .ref()
-        .child('admin_images/$documentId')
-        .delete();
-
-    setState(() {
-      _imageUrl = null;
-    });
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text("Image removed successfully!")),
-    );
-  }
-
   // Function to upload and save the image to both the admin collection and the selected item
   Future<void> _uploadAndSaveImage() async {
-    if (_imageFile == null && _webImage == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Please select an image first.")),
-      );
-      return;
-    }
+    setState(() {
+      _isLoading = true;
+    });
 
-    if (_selectedItem == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Please select an item first.")),
-      );
-      return;
-    }
+    try {
+      if (_imageFile == null && _webImage == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Please select an image first.")),
+        );
+        return;
+      }
 
-    UserController userController = Get.find();
-    String documentId = userController.documentId.value;
+      if (_selectedItem == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Please select an item first.")),
+        );
+        return;
+      }
 
-    String imageUrl = await _uploadImageToStorage(documentId);
-    if (imageUrl.isNotEmpty) {
+      UserController userController = Get.find();
+      String documentId = userController.documentId.value;
+
+      String imageUrl = await _uploadImageToStorage(documentId);
+      if (imageUrl.isNotEmpty) {
+        setState(() {
+          _imageUrl = imageUrl;
+        });
+
+        // Save image URL to both admin collection and the selected item
+        await _saveImageToFirestore(imageUrl);
+      }
+    } catch (e) {
+      print("Error uploading image: $e");
+    } finally {
       setState(() {
-        _imageUrl = imageUrl;
+        _isLoading = false;
       });
-
-      // Save image URL to both admin collection and the selected item
-      await _saveImageToFirestore(imageUrl);
     }
   }
 
@@ -289,111 +282,129 @@ class _SettingsPageState extends State<SettingsPage> {
       ),
       body: Padding(
         padding: const EdgeInsets.all(16.0),
-        child: Form(
-          key: _formKey,
-          child: SingleChildScrollView(
-            child: Column(
-              children: <Widget>[
-                // Image upload section
-                Text('Upload Image to Associate with an Item',
-                    style: TextStyle(fontWeight: FontWeight.bold)),
-                SizedBox(height: 10),
-                // Row for image and dropdown
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+        child: SingleChildScrollView(
+          child: Column(
+            children: <Widget>[
+              // Image upload section (without validation)
+              Text('Upload Image to Associate with an Item',
+                  style: TextStyle(fontWeight: FontWeight.bold)),
+              SizedBox(height: 10),
+              // Row for image and dropdown
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Display the image
+                  _buildImageDisplay(),
+                  SizedBox(width: 20),
+                  // Dropdown for items
+                  Expanded(
+                    child: _isLoading
+                        ? CircularProgressIndicator() // Show loading indicator while fetching items
+                        : DropdownButtonFormField<String>(
+                      decoration: InputDecoration(labelText: 'Select Item'),
+                      value: _selectedItem,
+                      items: _items.map((item) {
+                        return DropdownMenuItem<String>(
+                          value: item,
+                          child: Text(item),
+                        );
+                      }).toList(),
+                      onChanged: (newValue) {
+                        setState(() {
+                          _selectedItem = newValue;
+                        });
+                      },
+                    ),
+                  ),
+                ],
+              ),
+              SizedBox(height: 20),
+
+              // Image Picker Button
+              ElevatedButton.icon(
+                icon: Icon(Icons.photo_library), // Add an icon to the button
+                label: Text('Select Image'),
+                onPressed: _pickImage,
+                style: ElevatedButton.styleFrom(
+                  padding: EdgeInsets.symmetric(vertical: 15, horizontal: 20),
+                  textStyle: TextStyle(fontSize: 16),
+                ),
+              ),
+              if (_imageFile != null || _webImage != null) ...[
+                SizedBox(height: 20),
+                _buildImageDisplay(),
+                SizedBox(height: 20),
+                ElevatedButton.icon(
+                  icon: Icon(Icons.cloud_upload), // Add an upload icon
+                  label: Text(_isLoading ? 'Uploading...' : 'Upload and Apply Image'), // Change text based on loading state
+                  onPressed: _isLoading ? null : _uploadAndSaveImage, // Disable button during upload
+                  style: ElevatedButton.styleFrom(
+                    padding: EdgeInsets.symmetric(vertical: 15, horizontal: 20),
+                    textStyle: TextStyle(fontSize: 16),
+                  ),
+                ),
+              ],
+              SizedBox(height: 20),
+
+              // Separator line or space
+              Divider(thickness: 2),
+              SizedBox(height: 20),
+
+              // Credentials update section
+              Text('Update Admin Credentials',
+                  style: TextStyle(fontWeight: FontWeight.bold)),
+              SizedBox(height: 10),
+
+              // Form for credentials
+              Form(
+                key: _formKeyCredentials,
+                child: Column(
                   children: [
-                    // Display the image
-                    _buildImageDisplay(),
-                    SizedBox(width: 20),
-                    // Dropdown for items
-                    Expanded(
-                      child: _isLoading
-                          ? CircularProgressIndicator() // Show loading indicator while fetching items
-                          : DropdownButtonFormField<String>(
-                        decoration: InputDecoration(labelText: 'Select Item'),
-                        value: _selectedItem,
-                        items: _items.map((item) {
-                          return DropdownMenuItem<String>(
-                            value: item,
-                            child: Text(item),
-                          );
-                        }).toList(),
-                        onChanged: (newValue) {
-                          setState(() {
-                            _selectedItem = newValue;
-                          });
-                        },
-                        validator: (value) =>
-                        value == null ? 'Please select an item' : null,
+                    // Username TextField
+                    TextFormField(
+                      controller: _usernameController,
+                      decoration: InputDecoration(
+                        labelText: 'Username',
+                      ),
+                      validator: (value) {
+                        if (value == null || value.isEmpty) {
+                          return 'Please enter a username';
+                        }
+                        return null;
+                      },
+                    ),
+                    SizedBox(height: 20),
+
+                    // Password TextField
+                    TextFormField(
+                      controller: _passwordController,
+                      decoration: InputDecoration(
+                        labelText: 'Password',
+                      ),
+                      obscureText: true,
+                      validator: (value) {
+                        if (value == null || value.isEmpty) {
+                          return 'Please enter a password';
+                        }
+                        return null;
+                      },
+                    ),
+                    SizedBox(height: 20),
+
+                    // Credentials Update Button
+                    ElevatedButton.icon(
+                      icon: Icon(Icons.update), // Add update icon
+                      label: Text(_isLoading ? 'Updating...' : 'Update Credentials'), // Change text based on loading state
+                      onPressed: _isLoading ? null : updateAdminCredentials, // Disable button during update
+                      style: ElevatedButton.styleFrom(
+                        padding: EdgeInsets.symmetric(vertical: 15, horizontal: 20),
+                        textStyle: TextStyle(fontSize: 16),
                       ),
                     ),
                   ],
                 ),
-                SizedBox(height: 20),
-
-                // Image Picker Button
-                ElevatedButton(
-                  onPressed: _pickImage,
-                  child: Text('Select Image'),
-                ),
-                if (_imageFile != null || _webImage != null) ...[
-                  SizedBox(height: 20),
-                  _buildImageDisplay(),
-                  SizedBox(height: 20),
-                  ElevatedButton(
-                    onPressed: _uploadAndSaveImage,
-                    child: Text('Upload and Apply Image'),
-                  ),
-                ],
-                SizedBox(height: 20),
-
-                // Separator line or space
-                Divider(thickness: 2),
-                SizedBox(height: 20),
-
-                // Credentials update section
-                Text('Update Admin Credentials',
-                    style: TextStyle(fontWeight: FontWeight.bold)),
-                SizedBox(height: 10),
-
-                // Username TextField
-                TextFormField(
-                  controller: _usernameController,
-                  decoration: InputDecoration(
-                    labelText: 'Username',
-                  ),
-                  validator: (value) {
-                    if (value == null || value.isEmpty) {
-                      return 'Please enter a username';
-                    }
-                    return null;
-                  },
-                ),
-                SizedBox(height: 20),
-
-                // Password TextField
-                TextFormField(
-                  controller: _passwordController,
-                  decoration: InputDecoration(
-                    labelText: 'Password',
-                  ),
-                  obscureText: true,
-                  validator: (value) {
-                    if (value == null || value.isEmpty) {
-                      return 'Please enter a password';
-                    }
-                    return null;
-                  },
-                ),
-                SizedBox(height: 20),
-
-                // Credentials Update Button
-                ElevatedButton(
-                  onPressed: updateAdminCredentials,
-                  child: Text('Update Credentials'),
-                ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
       ),
