@@ -1,12 +1,11 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:unistock/widgets/custom_text.dart';
-import 'package:intl/intl.dart';  // Import the intl package
+import 'package:intl/intl.dart';
 
 class SalesHistoryPage extends StatelessWidget {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
-  // Fetch all approved items from Firestore
   Future<List<Map<String, dynamic>>> _fetchSalesHistory() async {
     QuerySnapshot approvedItemsSnapshot = await _firestore.collection('approved_items').get();
     List<Map<String, dynamic>> salesHistory = [];
@@ -21,7 +20,7 @@ class SalesHistoryPage extends StatelessWidget {
   // Function to format the date (removes milliseconds)
   String _formatDate(Timestamp timestamp) {
     DateTime date = timestamp.toDate();
-    return DateFormat('yyyy-MM-dd HH:mm:ss').format(date); // Formats without milliseconds
+    return DateFormat('yyyy-MM-dd HH:mm:ss').format(date);
   }
 
   @override
