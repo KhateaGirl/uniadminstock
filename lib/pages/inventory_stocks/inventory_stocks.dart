@@ -26,12 +26,14 @@ class _InventoryPageState extends State<InventoryPage> {
 
   Future<void> _fetchStockData() async {
     try {
+      // Fetch Senior High Items
       QuerySnapshot seniorHighSnapshot = await firestore
           .collection('Inventory_stock')
           .doc('Senior_high_items')
           .collection('Items')
           .get();
 
+      // Fetch College Items
       QuerySnapshot collegeSnapshot = await firestore
           .collection('Inventory_stock')
           .doc('College_items')
@@ -41,40 +43,55 @@ class _InventoryPageState extends State<InventoryPage> {
       Map<String, Map<String, dynamic>> seniorHighData = {};
       Map<String, Map<String, dynamic>> collegeData = {};
 
+      // Handle Senior High Items
       seniorHighSnapshot.docs.forEach((doc) {
         Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
         Map<String, int> stockData = {};
         String? imageUrl;
+        double? price;
+
         data.forEach((key, value) {
-          if (value is int) {
+          if (value is int && key != 'price') { // Exclude price from stock data
             stockData[key] = value;
           } else if (key == 'image_url') {
             imageUrl = value as String;
+          } else if (key == 'price') {
+            price = value?.toDouble();
           }
         });
-        // Debug print statement for the image URL
-        print('Senior High Item: ${doc.id}, Image URL: $imageUrl');
 
-        seniorHighData[doc.id] = {'stock': stockData, 'image_url': imageUrl};
+        seniorHighData[doc.id] = {
+          'stock': stockData,
+          'image_url': imageUrl,
+          'price': price,
+        };
       });
 
+      // Handle College Items
       collegeSnapshot.docs.forEach((doc) {
         Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
         Map<String, int> stockData = {};
         String? imageUrl;
+        double? price;
+
         data.forEach((key, value) {
-          if (value is int) {
+          if (value is int && key != 'price') { // Exclude price from stock data
             stockData[key] = value;
           } else if (key == 'image_url') {
             imageUrl = value as String;
+          } else if (key == 'price') {
+            price = value?.toDouble();
           }
         });
-        // Debug print statement for the image URL
-        print('College Item: ${doc.id}, Image URL: $imageUrl');
 
-        collegeData[doc.id] = {'stock': stockData, 'image_url': imageUrl};
+        collegeData[doc.id] = {
+          'stock': stockData,
+          'image_url': imageUrl,
+          'price': price,
+        };
       });
 
+      // Set state with the fetched data
       setState(() {
         _seniorHighStockQuantities = seniorHighData;
         _collegeStockQuantities = collegeData;
@@ -82,6 +99,30 @@ class _InventoryPageState extends State<InventoryPage> {
       });
     } catch (e) {
       print('Failed to fetch inventory data: $e');
+    }
+  }
+
+  Future<void> _addCustomSize(String item, String customSize, int quantity, bool isSeniorHigh) async {
+    try {
+      String collection = isSeniorHigh ? 'Senior_high_items' : 'College_items';
+
+      await firestore
+          .collection('Inventory_stock')
+          .doc(collection)
+          .collection('Items')
+          .doc(item)
+          .update({customSize: quantity});
+
+      setState(() {
+        if (isSeniorHigh) {
+          _seniorHighStockQuantities[item]?['stock']?[customSize] = quantity;
+        } else {
+          _collegeStockQuantities[item]?['stock']?[customSize] = quantity;
+        }
+        _showConfirmButton = true;
+      });
+    } catch (e) {
+      print('Failed to add custom size: $e');
     }
   }
 
@@ -143,27 +184,32 @@ class _InventoryPageState extends State<InventoryPage> {
     }
   }
 
-  Future<void> _addCustomSize(String item, String customSize, int quantity, bool isSeniorHigh) async {
+  Future<void> _updatePrice(String item, bool isSeniorHigh, String price) async {
     try {
       String collection = isSeniorHigh ? 'Senior_high_items' : 'College_items';
+      double? parsedPrice = double.tryParse(price);
 
-      await firestore
-          .collection('Inventory_stock')
-          .doc(collection)
-          .collection('Items')
-          .doc(item)
-          .update({customSize: quantity});
+      if (parsedPrice != null) {
+        await firestore
+            .collection('Inventory_stock')
+            .doc(collection)
+            .collection('Items')
+            .doc(item)
+            .update({'price': parsedPrice});
 
-      setState(() {
-        if (isSeniorHigh) {
-          _seniorHighStockQuantities[item]?['stock']?[customSize] = quantity;
-        } else {
-          _collegeStockQuantities[item]?['stock']?[customSize] = quantity;
-        }
-        _showConfirmButton = true;
-      });
+        setState(() {
+          if (isSeniorHigh) {
+            _seniorHighStockQuantities[item]?['price'] = parsedPrice;
+          } else {
+            _collegeStockQuantities[item]?['price'] = parsedPrice;
+          }
+          _showConfirmButton = true;
+        });
+      } else {
+        print("Invalid price entered");
+      }
     } catch (e) {
-      print('Failed to add custom size: $e');
+      print('Failed to update price: $e');
     }
   }
 
@@ -243,6 +289,12 @@ class _InventoryPageState extends State<InventoryPage> {
     Map<String, Map<String, dynamic>> stockQuantities = isSeniorHigh ? _seniorHighStockQuantities : _collegeStockQuantities;
     Map<String, int>? stockData = stockQuantities[item]?['stock'] as Map<String, int>?;
     String? imageUrl = stockQuantities[item]?['image_url'] as String?;
+    double? price = stockQuantities[item]?['price'] as double?;
+
+    // Initialize the TextEditingController with the price value or empty string if null
+    TextEditingController _priceController = TextEditingController(
+        text: price != null ? price.toStringAsFixed(2) : ''
+    );
 
     return Container(
       padding: EdgeInsets.all(8),
@@ -282,6 +334,8 @@ class _InventoryPageState extends State<InventoryPage> {
             textAlign: TextAlign.center,
           ),
           SizedBox(height: 5),
+
+          // Only show sizes and stock, not the price here
           if (stockData != null)
             ...stockData.keys.map((size) {
               return Row(
@@ -314,6 +368,22 @@ class _InventoryPageState extends State<InventoryPage> {
                 ],
               );
             }).toList(),
+
+          // Add the price input field after the sizes
+          SizedBox(height: 8),
+          TextField(
+            controller: _priceController,
+            keyboardType: TextInputType.number,
+            decoration: InputDecoration(
+              labelText: 'Price',
+              border: OutlineInputBorder(),
+            ),
+            onChanged: (value) {
+              if (value.isNotEmpty) {
+                _updatePrice(item, isSeniorHigh, value);
+              }
+            },
+          ),
           SizedBox(height: 8),
           if (!_excludedItems.contains(item))
             ElevatedButton(
