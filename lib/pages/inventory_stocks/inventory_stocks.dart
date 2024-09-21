@@ -10,13 +10,13 @@ class InventoryPage extends StatefulWidget {
 class _InventoryPageState extends State<InventoryPage> {
   FirebaseFirestore firestore = FirebaseFirestore.instance;
 
-  Map<String, Map<String, int>> _seniorHighStockQuantities = {};
-  Map<String, Map<String, int>> _collegeStockQuantities = {};
+  Map<String, Map<String, dynamic>> _seniorHighStockQuantities = {};
+  Map<String, Map<String, dynamic>> _collegeStockQuantities = {};
   bool _loading = true;
   bool _showConfirmButton = false;
 
   final List<String> _allowedCustomSizes = ['XL', '2XL', '3XL', '4XL', '5XL', '6XL', '7XL'];
-  final List<String> _excludedItems = ['Necktie', 'Scarf']; // Items to exclude from adding custom sizes
+  final List<String> _excludedItems = ['Necktie', 'Scarf'];
 
   @override
   void initState() {
@@ -24,34 +24,55 @@ class _InventoryPageState extends State<InventoryPage> {
     _fetchStockData();
   }
 
-  // Fetch stock data from Firestore
   Future<void> _fetchStockData() async {
     try {
-      // Fetch Senior High items
       QuerySnapshot seniorHighSnapshot = await firestore
           .collection('Inventory_stock')
           .doc('Senior_high_items')
           .collection('Items')
           .get();
 
-      // Fetch College items
       QuerySnapshot collegeSnapshot = await firestore
           .collection('Inventory_stock')
           .doc('College_items')
           .collection('Items')
           .get();
 
-      Map<String, Map<String, int>> seniorHighData = {};
-      Map<String, Map<String, int>> collegeData = {};
+      Map<String, Map<String, dynamic>> seniorHighData = {};
+      Map<String, Map<String, dynamic>> collegeData = {};
 
-      // Process Senior High items
       seniorHighSnapshot.docs.forEach((doc) {
-        seniorHighData[doc.id] = Map<String, int>.from(doc.data() as Map);
+        Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
+        Map<String, int> stockData = {};
+        String? imageUrl;
+        data.forEach((key, value) {
+          if (value is int) {
+            stockData[key] = value;
+          } else if (key == 'image_url') {
+            imageUrl = value as String;
+          }
+        });
+        // Debug print statement for the image URL
+        print('Senior High Item: ${doc.id}, Image URL: $imageUrl');
+
+        seniorHighData[doc.id] = {'stock': stockData, 'image_url': imageUrl};
       });
 
-      // Process College items
       collegeSnapshot.docs.forEach((doc) {
-        collegeData[doc.id] = Map<String, int>.from(doc.data() as Map);
+        Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
+        Map<String, int> stockData = {};
+        String? imageUrl;
+        data.forEach((key, value) {
+          if (value is int) {
+            stockData[key] = value;
+          } else if (key == 'image_url') {
+            imageUrl = value as String;
+          }
+        });
+        // Debug print statement for the image URL
+        print('College Item: ${doc.id}, Image URL: $imageUrl');
+
+        collegeData[doc.id] = {'stock': stockData, 'image_url': imageUrl};
       });
 
       setState(() {
@@ -64,16 +85,14 @@ class _InventoryPageState extends State<InventoryPage> {
     }
   }
 
-  // Function to increment stock quantity
   Future<void> _incrementStock(String item, String size, bool isSeniorHigh) async {
     try {
       String collection = isSeniorHigh ? 'Senior_high_items' : 'College_items';
       int currentStock = isSeniorHigh
-          ? (_seniorHighStockQuantities[item]?[size] ?? 0)
-          : (_collegeStockQuantities[item]?[size] ?? 0);
+          ? (_seniorHighStockQuantities[item]?['stock']?[size] ?? 0)
+          : (_collegeStockQuantities[item]?['stock']?[size] ?? 0);
       int newStock = currentStock + 1;
 
-      // Update the stock in Firestore
       await firestore
           .collection('Inventory_stock')
           .doc(collection)
@@ -81,12 +100,11 @@ class _InventoryPageState extends State<InventoryPage> {
           .doc(item)
           .update({size: newStock});
 
-      // Update the UI state
       setState(() {
         if (isSeniorHigh) {
-          _seniorHighStockQuantities[item]?[size] = newStock;
+          _seniorHighStockQuantities[item]?['stock']?[size] = newStock;
         } else {
-          _collegeStockQuantities[item]?[size] = newStock;
+          _collegeStockQuantities[item]?['stock']?[size] = newStock;
         }
         _showConfirmButton = true;
       });
@@ -95,17 +113,15 @@ class _InventoryPageState extends State<InventoryPage> {
     }
   }
 
-  // Function to decrement stock quantity
   Future<void> _decrementStock(String item, String size, bool isSeniorHigh) async {
     try {
       String collection = isSeniorHigh ? 'Senior_high_items' : 'College_items';
       int currentStock = isSeniorHigh
-          ? (_seniorHighStockQuantities[item]?[size] ?? 0)
-          : (_collegeStockQuantities[item]?[size] ?? 0);
+          ? (_seniorHighStockQuantities[item]?['stock']?[size] ?? 0)
+          : (_collegeStockQuantities[item]?['stock']?[size] ?? 0);
       if (currentStock > 0) {
         int newStock = currentStock - 1;
 
-        // Update the stock in Firestore
         await firestore
             .collection('Inventory_stock')
             .doc(collection)
@@ -113,12 +129,11 @@ class _InventoryPageState extends State<InventoryPage> {
             .doc(item)
             .update({size: newStock});
 
-        // Update the UI state
         setState(() {
           if (isSeniorHigh) {
-            _seniorHighStockQuantities[item]?[size] = newStock;
+            _seniorHighStockQuantities[item]?['stock']?[size] = newStock;
           } else {
-            _collegeStockQuantities[item]?[size] = newStock;
+            _collegeStockQuantities[item]?['stock']?[size] = newStock;
           }
           _showConfirmButton = true;
         });
@@ -128,12 +143,10 @@ class _InventoryPageState extends State<InventoryPage> {
     }
   }
 
-  // Function to add custom size and quantity
   Future<void> _addCustomSize(String item, String customSize, int quantity, bool isSeniorHigh) async {
     try {
       String collection = isSeniorHigh ? 'Senior_high_items' : 'College_items';
 
-      // Update Firestore with the custom size and quantity
       await firestore
           .collection('Inventory_stock')
           .doc(collection)
@@ -141,12 +154,11 @@ class _InventoryPageState extends State<InventoryPage> {
           .doc(item)
           .update({customSize: quantity});
 
-      // Update the UI state
       setState(() {
         if (isSeniorHigh) {
-          _seniorHighStockQuantities[item]?[customSize] = quantity;
+          _seniorHighStockQuantities[item]?['stock']?[customSize] = quantity;
         } else {
-          _collegeStockQuantities[item]?[customSize] = quantity;
+          _collegeStockQuantities[item]?['stock']?[customSize] = quantity;
         }
         _showConfirmButton = true;
       });
@@ -155,7 +167,6 @@ class _InventoryPageState extends State<InventoryPage> {
     }
   }
 
-  // Function to show a dialog for adding a custom size
   void _showCustomSizeDialog(String item, bool isSeniorHigh) {
     String customSize = 'XL';
     int customQuantity = 1;
@@ -168,7 +179,6 @@ class _InventoryPageState extends State<InventoryPage> {
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              // Dropdown for custom size selection
               DropdownButton<String>(
                 value: customSize,
                 onChanged: (String? newValue) {
@@ -229,10 +239,10 @@ class _InventoryPageState extends State<InventoryPage> {
     );
   }
 
-  // Build item card with custom size option
   Widget _buildItemCard(String item, bool isSeniorHigh) {
-    Map<String, Map<String, int>> stockQuantities =
-    isSeniorHigh ? _seniorHighStockQuantities : _collegeStockQuantities;
+    Map<String, Map<String, dynamic>> stockQuantities = isSeniorHigh ? _seniorHighStockQuantities : _collegeStockQuantities;
+    Map<String, int>? stockData = stockQuantities[item]?['stock'] as Map<String, int>?;
+    String? imageUrl = stockQuantities[item]?['image_url'] as String?;
 
     return Container(
       padding: EdgeInsets.all(8),
@@ -243,6 +253,26 @@ class _InventoryPageState extends State<InventoryPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
+          if (imageUrl != null)
+            Image.network(
+              imageUrl,
+              height: 100,
+              width: 100,
+              fit: BoxFit.cover,
+              loadingBuilder: (context, child, loadingProgress) {
+                if (loadingProgress == null) {
+                  return child;
+                } else {
+                  return Center(
+                    child: CircularProgressIndicator(),
+                  );
+                }
+              },
+              errorBuilder: (context, error, stackTrace) {
+                return Icon(Icons.error);
+              },
+            ),
+          SizedBox(height: 8),
           Text(
             item,
             style: TextStyle(
@@ -252,37 +282,39 @@ class _InventoryPageState extends State<InventoryPage> {
             textAlign: TextAlign.center,
           ),
           SizedBox(height: 5),
-          ...?stockQuantities[item]?.keys.map((size) {
-            return Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Expanded(
-                  child: Container(
-                    child: Text('$size:'),
+          if (stockData != null)
+            ...stockData.keys.map((size) {
+              return Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Expanded(
+                    child: Container(
+                      child: Text('$size:'),
+                    ),
                   ),
-                ),
-                IconButton(
-                  icon: Icon(Icons.remove),
-                  onPressed: () {
-                    _decrementStock(item, size, isSeniorHigh);
-                  },
-                ),
-                Container(
-                  width: 18,
-                  child: Text('${stockQuantities[item]?[size] ?? 0}',
-                      style: TextStyle(fontWeight: FontWeight.bold, color: active)),
-                ),
-                IconButton(
-                  icon: Icon(Icons.add),
-                  onPressed: () {
-                    _incrementStock(item, size, isSeniorHigh);
-                  },
-                ),
-              ],
-            );
-          }).toList(),
+                  IconButton(
+                    icon: Icon(Icons.remove),
+                    onPressed: () {
+                      _decrementStock(item, size, isSeniorHigh);
+                    },
+                  ),
+                  Container(
+                    width: 18,
+                    child: Text(
+                      '${stockData[size] ?? 0}',
+                      style: TextStyle(fontWeight: FontWeight.bold, color: active),
+                    ),
+                  ),
+                  IconButton(
+                    icon: Icon(Icons.add),
+                    onPressed: () {
+                      _incrementStock(item, size, isSeniorHigh);
+                    },
+                  ),
+                ],
+              );
+            }).toList(),
           SizedBox(height: 8),
-          // Add custom size button only if the item is not in the excluded list
           if (!_excludedItems.contains(item))
             ElevatedButton(
               onPressed: () {
@@ -317,7 +349,7 @@ class _InventoryPageState extends State<InventoryPage> {
                 Navigator.of(context).pop();
               },
               style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.blue, // Replace with your desired color
+                backgroundColor: Colors.blue,
                 padding: EdgeInsets.symmetric(horizontal: 32, vertical: 16),
               ),
               child: Text(
@@ -342,7 +374,6 @@ class _InventoryPageState extends State<InventoryPage> {
             Expanded(
               child: ListView(
                 children: [
-                  // Senior High Inventory Section
                   Text(
                     'Senior High Inventory',
                     style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
@@ -359,8 +390,6 @@ class _InventoryPageState extends State<InventoryPage> {
                     }).toList(),
                   ),
                   SizedBox(height: 16),
-
-                  // College Inventory Section
                   Text(
                     'College Inventory',
                     style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
