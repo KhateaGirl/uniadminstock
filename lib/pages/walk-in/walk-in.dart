@@ -1,8 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
-import 'package:google_fonts/google_fonts.dart';
-import 'package:unistock/constants/InventoryData.dart';
-import 'package:unistock/constants/style.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 class WalkinPage extends StatefulWidget {
@@ -16,25 +13,107 @@ class _MainWalkInPageState extends State<WalkinPage> {
   final TextEditingController _studentNumberController = TextEditingController();
   final Map<String, String?> _selectedSizes = {};
   final Map<String, int> _selectedQuantities = {};
-  final Map<String, String> _selectedCategories = {};
   String? _selectedCategory;
   String? _selectedSubcategory;
 
-  // Create instance of InventoryData class
-  final InventoryData _inventoryData = InventoryData();
+  // Store data fetched from Firestore
+  Map<String, Map<String, Map<String, dynamic>>> _uniformsData = {};
 
-  List<DropdownMenuItem<String>> _getSizeOptions(String subcategory) {
-    List<String> sizes = _inventoryData.getPriceOptions(subcategory)?.keys.toList() ?? [];
+  @override
+  void initState() {
+    super.initState();
+    _fetchUniformsData(); // Fetch data on init
+  }
+
+  // Fetch Senior High and College Uniforms Data
+  Future<void> _fetchUniformsData() async {
+    try {
+      // Fetch Senior High Items
+      QuerySnapshot seniorHighSnapshot = await FirebaseFirestore.instance
+          .collection('Inventory_stock')
+          .doc('Senior_high_items')
+          .collection('Items')
+          .get();
+
+      // Fetch College Items
+      QuerySnapshot collegeSnapshot = await FirebaseFirestore.instance
+          .collection('Inventory_stock')
+          .doc('College_items')
+          .collection('Items')
+          .get();
+
+      // Parse the data into _uniformsData
+      _parseUniformsData(seniorHighSnapshot, 'Senior High');
+      _parseUniformsData(collegeSnapshot, 'College');
+
+      setState(() {}); // Update the UI with fetched data
+    } catch (e) {
+      print('Error fetching inventory data: $e');
+    }
+  }
+
+  // Parse Firestore data into usable format while ignoring price and image_url fields
+  void _parseUniformsData(QuerySnapshot snapshot, String category) {
+    for (var doc in snapshot.docs) {
+      Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
+      Map<String, dynamic> filteredData = {};
+
+      // Filter out 'price' and 'image_url' fields
+      data.forEach((key, value) {
+        if (key != 'price' && key != 'image_url') {
+          filteredData[key] = value;
+        }
+      });
+
+      // Store filtered data in _uniformsData
+      _uniformsData[category] ??= {};
+      _uniformsData[category]![doc.id] = filteredData;
+    }
+  }
+
+  // Define a custom sorting order for sizes
+  List<String> _sizeOrder = [
+    'XS', 'Small', 'Medium', 'Large', 'XL', '2XL', '3XL', '4XL', '5XL', '6XL', '7XL'
+  ];
+
+  // Function to get sorted sizes
+  List<String> _getSortedSizes(Map<String, dynamic> sizes) {
+    List<String> sortedSizes = sizes.keys.toList();
+    sortedSizes.sort((a, b) {
+      int indexA = _sizeOrder.indexOf(a);
+      int indexB = _sizeOrder.indexOf(b);
+      if (indexA == -1) return 1; // If size is not found in custom order, put it at the end
+      if (indexB == -1) return -1;
+      return indexA.compareTo(indexB);
+    });
+    return sortedSizes;
+  }
+
+  List<DropdownMenuItem<String>> _getSizeOptions(String item, String category) {
+    Map<String, dynamic>? sizesMapDynamic = _uniformsData[category]?[item];
+
+    // If the sizesMapDynamic is null, return an empty list
+    if (sizesMapDynamic == null) return [];
+
+    Map<String, dynamic> sizesMap = {};
+    sizesMapDynamic.forEach((key, value) {
+      if (value is int) {
+        sizesMap[key] = value; // Handle only non-price and non-image fields
+      }
+    });
+
+    // Sort sizes
+    List<String> sortedSizes = _getSortedSizes(sizesMap);
+
     return [
       DropdownMenuItem<String>(
         value: 'None',
         child: Text('None'),
       ),
-      ...sizes.map((size) {
-        double? price = _inventoryData.getPriceOptions(subcategory)?[size];
+      ...sortedSizes.map((size) {
         return DropdownMenuItem<String>(
           value: size,
-          child: Text('$size - ₱${price?.toStringAsFixed(2) ?? ""}'),
+          child: Text(size), // Only size is displayed
         );
       }).toList(),
     ];
@@ -59,7 +138,6 @@ class _MainWalkInPageState extends State<WalkinPage> {
           .get();
 
       if (userSnapshot.docs.isEmpty) {
-        // If no matching user found
         Get.snackbar('Error', 'No matching user found with this name and student number');
         return;
       }
@@ -73,53 +151,42 @@ class _MainWalkInPageState extends State<WalkinPage> {
           .doc(userDoc.id)
           .collection('cart');
 
-      // Prepare to accumulate cart details for admin record
       List<Map<String, dynamic>> cartItems = [];
 
       // Save each item selected in the cart
       for (String item in _selectedQuantities.keys) {
         int quantity = _selectedQuantities[item] ?? 0;
         String? size = _selectedSizes[item];
-        double price = _inventoryData.getPriceOptions(item)?[size] ?? 0;
-
         if (quantity > 0 && size != null && size != 'None') {
-          // Add the item to the user's cart
           DocumentReference cartItemRef = await cartRef.add({
             'itemLabel': item,
             'itemSize': size,
-            'price': price,
             'quantity': quantity,
-            'status': 'pending', // Set default status to pending
+            'status': 'pending',
             'timestamp': FieldValue.serverTimestamp(),
           });
 
-          // Add item to the cart details for admin
           cartItems.add({
             'itemLabel': item,
             'itemSize': size,
-            'price': price,
             'quantity': quantity,
-            'cartItemRef': cartItemRef.id, // Store the cart item document reference
+            'cartItemRef': cartItemRef.id,
           });
         }
       }
 
-      // Now save a transaction record for the admin
       CollectionReference adminRef = FirebaseFirestore.instance.collection('admin_transactions');
 
       await adminRef.add({
         'userId': userDoc.id,
         'userName': studentName,
         'studentNumber': studentNumber,
-        'cartItems': cartItems, // Include the items added to the cart
+        'cartItems': cartItems,
         'timestamp': FieldValue.serverTimestamp(),
       });
 
-      // Success message
       Get.snackbar('Success', 'Order submitted successfully!');
-
     } catch (e) {
-      // Handle any errors that occur
       Get.snackbar('Error', 'Failed to submit the order. Please try again.');
       print(e);
     }
@@ -136,10 +203,7 @@ class _MainWalkInPageState extends State<WalkinPage> {
             children: [
               Text(
                 'Walk-In Order Form',
-                style: GoogleFonts.roboto(
-                  fontSize: 28,
-                  fontWeight: FontWeight.bold,
-                ),
+                style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
               ),
               SizedBox(height: 24),
               TextFormField(
@@ -182,10 +246,9 @@ class _MainWalkInPageState extends State<WalkinPage> {
                   setState(() {
                     _selectedCategory = newCategory;
                     _selectedSubcategory = null;
-                    _selectedCategories.clear(); // Clear previous selections
                   });
                 },
-                items: _inventoryData.getCategories().map((category) {
+                items: ['Uniform'].map((category) {
                   return DropdownMenuItem<String>(
                     value: category,
                     child: Text(category),
@@ -205,10 +268,9 @@ class _MainWalkInPageState extends State<WalkinPage> {
                   onChanged: (newSubcategory) {
                     setState(() {
                       _selectedSubcategory = newSubcategory;
-                      _selectedCategories[_selectedSubcategory ?? ''] = '';
                     });
                   },
-                  items: _inventoryData.getSubcategories(_selectedCategory!)!.map((subcategory) {
+                  items: ['Senior High', 'College'].map((subcategory) {
                     return DropdownMenuItem<String>(
                       value: subcategory,
                       child: Text(subcategory),
@@ -222,16 +284,13 @@ class _MainWalkInPageState extends State<WalkinPage> {
                   ),
                 ),
               SizedBox(height: 16),
-              if (_selectedSubcategory != null)
+              if (_selectedSubcategory != null && _uniformsData[_selectedSubcategory] != null)
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
                     Text(
                       'ITEMS IN ${_selectedSubcategory!.toUpperCase()}',
-                      style: GoogleFonts.roboto(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                      ),
+                      style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                     ),
                     SizedBox(height: 10),
                     GridView.builder(
@@ -243,32 +302,26 @@ class _MainWalkInPageState extends State<WalkinPage> {
                         mainAxisSpacing: 8,
                         childAspectRatio: 2,
                       ),
-                      itemCount: (_inventoryData.getUniformsByCategory(_selectedSubcategory!) ?? []).length,
+                      itemCount: _uniformsData[_selectedSubcategory]!.keys.length,
                       itemBuilder: (context, index) {
-                        String item = (_inventoryData.getUniformsByCategory(_selectedSubcategory!) ?? [])[index];
+                        String item = _uniformsData[_selectedSubcategory]!.keys.elementAt(index);
                         return Container(
-                          height: 150, // Fixed height for better alignment
+                          height: 150,
                           padding: EdgeInsets.all(8),
                           decoration: BoxDecoration(
                             border: Border.all(color: Colors.grey),
                             borderRadius: BorderRadius.circular(8),
                           ),
                           child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center, // Center content vertically
+                            mainAxisAlignment: MainAxisAlignment.center,
                             crossAxisAlignment: CrossAxisAlignment.center,
                             children: [
-                              // Label for the item
                               Text(
                                 item,
-                                style: TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  color: active,
-                                  fontSize: 12, // Adjusted font size
-                                ),
+                                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
                                 textAlign: TextAlign.center,
                               ),
                               SizedBox(height: 4),
-                              // Size dropdown
                               DropdownButton<String>(
                                 value: _selectedSizes[item],
                                 onChanged: (newSize) {
@@ -279,18 +332,14 @@ class _MainWalkInPageState extends State<WalkinPage> {
                                     }
                                   });
                                 },
-                                items: _getSizeOptions(item),
+                                items: _getSizeOptions(item, _selectedSubcategory!),
                               ),
                               SizedBox(height: 4),
-                              // Quantity controls
                               Row(
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
                                   IconButton(
-                                    icon: Icon(
-                                      Icons.remove,
-                                      color: Colors.black,
-                                    ),
+                                    icon: Icon(Icons.remove),
                                     onPressed: () {
                                       int quantity = _selectedQuantities[item] ?? 0;
                                       if (quantity > 0) {
@@ -302,13 +351,10 @@ class _MainWalkInPageState extends State<WalkinPage> {
                                   ),
                                   Text(
                                     '${_selectedQuantities[item] ?? 0}',
-                                    style: TextStyle(fontWeight: FontWeight.bold, color: active),
+                                    style: TextStyle(fontWeight: FontWeight.bold),
                                   ),
                                   IconButton(
-                                    icon: Icon(
-                                      Icons.add,
-                                      color: Colors.black,
-                                    ),
+                                    icon: Icon(Icons.add),
                                     onPressed: () {
                                       int quantity = _selectedQuantities[item] ?? 0;
                                       setState(() {
@@ -327,15 +373,11 @@ class _MainWalkInPageState extends State<WalkinPage> {
                 ),
               SizedBox(height: 24),
               ElevatedButton(
-                onPressed: _submitOrder, // Submit order function
+                onPressed: _submitOrder,
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: active,
                   padding: EdgeInsets.symmetric(horizontal: 32, vertical: 16),
                 ),
-                child: Text(
-                  'Submit Order',
-                  style: TextStyle(color: Colors.yellow),
-                ),
+                child: Text('Submit Order'),
               ),
             ],
           ),
@@ -344,4 +386,3 @@ class _MainWalkInPageState extends State<WalkinPage> {
     );
   }
 }
-

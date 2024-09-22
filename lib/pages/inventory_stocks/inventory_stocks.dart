@@ -48,22 +48,18 @@ class _InventoryPageState extends State<InventoryPage> {
         Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
         Map<String, int> stockData = {};
         String? imageUrl;
-        double? price;
 
         data.forEach((key, value) {
-          if (value is int && key != 'price') { // Exclude price from stock data
+          if (value is int) {
             stockData[key] = value;
           } else if (key == 'image_url') {
             imageUrl = value as String;
-          } else if (key == 'price') {
-            price = value?.toDouble();
           }
         });
 
         seniorHighData[doc.id] = {
           'stock': stockData,
           'image_url': imageUrl,
-          'price': price,
         };
       });
 
@@ -72,22 +68,18 @@ class _InventoryPageState extends State<InventoryPage> {
         Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
         Map<String, int> stockData = {};
         String? imageUrl;
-        double? price;
 
         data.forEach((key, value) {
-          if (value is int && key != 'price') { // Exclude price from stock data
+          if (value is int) {
             stockData[key] = value;
           } else if (key == 'image_url') {
             imageUrl = value as String;
-          } else if (key == 'price') {
-            price = value?.toDouble();
           }
         });
 
         collegeData[doc.id] = {
           'stock': stockData,
           'image_url': imageUrl,
-          'price': price,
         };
       });
 
@@ -184,35 +176,6 @@ class _InventoryPageState extends State<InventoryPage> {
     }
   }
 
-  Future<void> _updatePrice(String item, bool isSeniorHigh, String price) async {
-    try {
-      String collection = isSeniorHigh ? 'Senior_high_items' : 'College_items';
-      double? parsedPrice = double.tryParse(price);
-
-      if (parsedPrice != null) {
-        await firestore
-            .collection('Inventory_stock')
-            .doc(collection)
-            .collection('Items')
-            .doc(item)
-            .update({'price': parsedPrice});
-
-        setState(() {
-          if (isSeniorHigh) {
-            _seniorHighStockQuantities[item]?['price'] = parsedPrice;
-          } else {
-            _collegeStockQuantities[item]?['price'] = parsedPrice;
-          }
-          _showConfirmButton = true;
-        });
-      } else {
-        print("Invalid price entered");
-      }
-    } catch (e) {
-      print('Failed to update price: $e');
-    }
-  }
-
   void _showCustomSizeDialog(String item, bool isSeniorHigh) {
     String customSize = 'XL';
     int customQuantity = 1;
@@ -289,12 +252,6 @@ class _InventoryPageState extends State<InventoryPage> {
     Map<String, Map<String, dynamic>> stockQuantities = isSeniorHigh ? _seniorHighStockQuantities : _collegeStockQuantities;
     Map<String, int>? stockData = stockQuantities[item]?['stock'] as Map<String, int>?;
     String? imageUrl = stockQuantities[item]?['image_url'] as String?;
-    double? price = stockQuantities[item]?['price'] as double?;
-
-    // Initialize the TextEditingController with the price value or empty string if null
-    TextEditingController _priceController = TextEditingController(
-        text: price != null ? price.toStringAsFixed(2) : ''
-    );
 
     return Container(
       padding: EdgeInsets.all(8),
@@ -335,7 +292,7 @@ class _InventoryPageState extends State<InventoryPage> {
           ),
           SizedBox(height: 5),
 
-          // Only show sizes and stock, not the price here
+          // Only show sizes and stock, no price
           if (stockData != null)
             ...stockData.keys.map((size) {
               return Row(
@@ -369,21 +326,6 @@ class _InventoryPageState extends State<InventoryPage> {
               );
             }).toList(),
 
-          // Add the price input field after the sizes
-          SizedBox(height: 8),
-          TextField(
-            controller: _priceController,
-            keyboardType: TextInputType.number,
-            decoration: InputDecoration(
-              labelText: 'Price',
-              border: OutlineInputBorder(),
-            ),
-            onChanged: (value) {
-              if (value.isNotEmpty) {
-                _updatePrice(item, isSeniorHigh, value);
-              }
-            },
-          ),
           SizedBox(height: 8),
           if (!_excludedItems.contains(item))
             ElevatedButton(
