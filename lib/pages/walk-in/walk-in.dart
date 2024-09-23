@@ -100,7 +100,7 @@ class _MainWalkInPageState extends State<WalkinPage> {
       ...sortedSizes.map((size) {
         return DropdownMenuItem<String>(
           value: size,
-          child: Text('$size - \₱${sizesMapDynamic[size]?['price'] ?? 0}'),
+          child: Text('$size - ₱${sizesMapDynamic[size]?['price'] ?? 0}'),
         );
       }).toList(),
     ];
@@ -138,7 +138,12 @@ class _MainWalkInPageState extends State<WalkinPage> {
       for (String item in _selectedQuantities.keys) {
         int quantity = _selectedQuantities[item] ?? 0;
         String? size = _selectedSizes[item];
+
         if (quantity > 0 && size != null && size != 'None') {
+          // Step 1: Deduct quantity from Firestore inventory
+          await _deductQuantityFromInventory(item, size, quantity);
+
+          // Add the item to the cart
           DocumentReference cartItemRef = await cartRef.add({
             'itemLabel': item,
             'itemSize': size,
@@ -170,6 +175,60 @@ class _MainWalkInPageState extends State<WalkinPage> {
     } catch (e) {
       Get.snackbar('Error', 'Failed to submit the order. Please try again.');
       print(e);
+    }
+  }
+
+  Future<void> _deductQuantityFromInventory(String item, String size, int orderQuantity) async {
+    // Determine the collection based on the selected category (Senior High or College)
+    String collection = _selectedSubcategory == 'Senior High' ? 'Senior_high_items' : 'College_items';
+
+    // Reference the item in the Firestore collection
+    DocumentReference itemRef = FirebaseFirestore.instance
+        .collection('Inventory_stock')
+        .doc(collection)
+        .collection('Items')
+        .doc(item);
+
+    // Get the current document snapshot for the item
+    DocumentSnapshot itemSnapshot = await itemRef.get();
+
+    if (itemSnapshot.exists) {
+      Map<String, dynamic>? itemData = itemSnapshot.data() as Map<String, dynamic>?;
+
+      // Check if the item has data and the selected size exists
+      if (itemData != null && itemData.containsKey(size)) {
+        int currentQuantity = itemData[size]['quantity'] ?? 0;
+
+        // Log the current quantity and the order quantity
+        print('Current Quantity for $item ($size): $currentQuantity');
+        print('Order Quantity: $orderQuantity');
+
+        if (currentQuantity > 0) {
+          // Calculate the new quantity after the order
+          int newQuantity = currentQuantity - orderQuantity;
+
+          if (newQuantity < 0) {
+            newQuantity = 0; // Avoid negative quantities
+          }
+
+          // Log the new quantity to be updated
+          print('New Quantity: $newQuantity');
+
+          // Update the Firestore document with the new quantity
+          // Use the correct path for updating the nested quantity field (e.g., 2XL.quantity)
+          await itemRef.update({
+            '$size.quantity': newQuantity, // Correctly reference the nested field
+          });
+
+          print('Firestore updated successfully for $item ($size)');
+        } else {
+          print('Insufficient stock for $item ($size)');
+        }
+      } else {
+        print('Size $size not found for item $item');
+      }
+    } else {
+      print('Item $item not found');
     }
   }
 
@@ -318,7 +377,7 @@ class _MainWalkInPageState extends State<WalkinPage> {
                               SizedBox(height: 4),
                               if (_selectedSizes[item] != null && _selectedSizes[item] != 'None')
                                 Text(
-                                  'Price: \₱${_uniformsData[_selectedSubcategory]?[item]?[_selectedSizes[item]]?['price'] ?? 0}',
+                                  'Price: ₱${_uniformsData[_selectedSubcategory]?[item]?[_selectedSizes[item]]?['price'] ?? 0}',
                                   style: TextStyle(fontWeight: FontWeight.bold, color: Colors.green),
                                 ),
                               Row(
