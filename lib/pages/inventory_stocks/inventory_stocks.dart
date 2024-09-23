@@ -363,7 +363,7 @@ class _InventoryPageState extends State<InventoryPage> {
                   Container(
                     width: 50,
                     child: Text(
-                      '\$${stockData[size]?['price'] ?? 0}',
+                      '\₱${stockData[size]?['price'] ?? 0}',
                       style: TextStyle(fontWeight: FontWeight.bold, color: Colors.green),
                     ),
                   ),

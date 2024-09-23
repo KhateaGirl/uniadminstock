@@ -22,67 +22,61 @@ class _MainWalkInPageState extends State<WalkinPage> {
   @override
   void initState() {
     super.initState();
-    _fetchUniformsData(); // Fetch data on init
+    _fetchUniformsData();
   }
 
-  // Fetch Senior High and College Uniforms Data
   Future<void> _fetchUniformsData() async {
     try {
-      // Fetch Senior High Items
       QuerySnapshot seniorHighSnapshot = await FirebaseFirestore.instance
           .collection('Inventory_stock')
           .doc('Senior_high_items')
           .collection('Items')
           .get();
 
-      // Fetch College Items
       QuerySnapshot collegeSnapshot = await FirebaseFirestore.instance
           .collection('Inventory_stock')
           .doc('College_items')
           .collection('Items')
           .get();
 
-      // Parse the data into _uniformsData
       _parseUniformsData(seniorHighSnapshot, 'Senior High');
       _parseUniformsData(collegeSnapshot, 'College');
 
-      setState(() {}); // Update the UI with fetched data
+      setState(() {});
     } catch (e) {
       print('Error fetching inventory data: $e');
     }
   }
 
-  // Parse Firestore data into usable format while ignoring price and image_url fields
   void _parseUniformsData(QuerySnapshot snapshot, String category) {
     for (var doc in snapshot.docs) {
       Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
       Map<String, dynamic> filteredData = {};
 
-      // Filter out 'price' and 'image_url' fields
       data.forEach((key, value) {
-        if (key != 'price' && key != 'image_url') {
-          filteredData[key] = value;
+        if (value is Map && value.containsKey('quantity') && value.containsKey('price')) {
+          filteredData[key] = {
+            'quantity': value['quantity'],
+            'price': value['price'],
+          };
         }
       });
 
-      // Store filtered data in _uniformsData
       _uniformsData[category] ??= {};
       _uniformsData[category]![doc.id] = filteredData;
     }
   }
 
-  // Define a custom sorting order for sizes
   List<String> _sizeOrder = [
     'XS', 'Small', 'Medium', 'Large', 'XL', '2XL', '3XL', '4XL', '5XL', '6XL', '7XL'
   ];
 
-  // Function to get sorted sizes
   List<String> _getSortedSizes(Map<String, dynamic> sizes) {
     List<String> sortedSizes = sizes.keys.toList();
     sortedSizes.sort((a, b) {
       int indexA = _sizeOrder.indexOf(a);
       int indexB = _sizeOrder.indexOf(b);
-      if (indexA == -1) return 1; // If size is not found in custom order, put it at the end
+      if (indexA == -1) return 1;
       if (indexB == -1) return -1;
       return indexA.compareTo(indexB);
     });
@@ -92,17 +86,10 @@ class _MainWalkInPageState extends State<WalkinPage> {
   List<DropdownMenuItem<String>> _getSizeOptions(String item, String category) {
     Map<String, dynamic>? sizesMapDynamic = _uniformsData[category]?[item];
 
-    // If the sizesMapDynamic is null, return an empty list
     if (sizesMapDynamic == null) return [];
 
-    Map<String, dynamic> sizesMap = {};
-    sizesMapDynamic.forEach((key, value) {
-      if (value is int) {
-        sizesMap[key] = value; // Handle only non-price and non-image fields
-      }
-    });
+    Map<String, dynamic> sizesMap = sizesMapDynamic.map((key, value) => MapEntry(key, value['quantity']));
 
-    // Sort sizes
     List<String> sortedSizes = _getSortedSizes(sizesMap);
 
     return [
@@ -113,24 +100,21 @@ class _MainWalkInPageState extends State<WalkinPage> {
       ...sortedSizes.map((size) {
         return DropdownMenuItem<String>(
           value: size,
-          child: Text(size), // Only size is displayed
+          child: Text('$size - \₱${sizesMapDynamic[size]?['price'] ?? 0}'),
         );
       }).toList(),
     ];
   }
 
   Future<void> _submitOrder() async {
-    // Validate form
     if (!_formKey.currentState!.validate()) {
       return;
     }
 
-    // Extract the student name and number
     String studentName = _nameController.text;
     String studentNumber = _studentNumberController.text;
 
     try {
-      // Query Firestore to find matching user
       QuerySnapshot userSnapshot = await FirebaseFirestore.instance
           .collection('users')
           .where('name', isEqualTo: studentName)
@@ -142,10 +126,8 @@ class _MainWalkInPageState extends State<WalkinPage> {
         return;
       }
 
-      // Get the first matched document (assuming unique name and studentId)
       DocumentSnapshot userDoc = userSnapshot.docs.first;
 
-      // Add items to the cart subcollection of the matched user
       CollectionReference cartRef = FirebaseFirestore.instance
           .collection('users')
           .doc(userDoc.id)
@@ -153,7 +135,6 @@ class _MainWalkInPageState extends State<WalkinPage> {
 
       List<Map<String, dynamic>> cartItems = [];
 
-      // Save each item selected in the cart
       for (String item in _selectedQuantities.keys) {
         int quantity = _selectedQuantities[item] ?? 0;
         String? size = _selectedSizes[item];
@@ -335,6 +316,11 @@ class _MainWalkInPageState extends State<WalkinPage> {
                                 items: _getSizeOptions(item, _selectedSubcategory!),
                               ),
                               SizedBox(height: 4),
+                              if (_selectedSizes[item] != null && _selectedSizes[item] != 'None')
+                                Text(
+                                  'Price: \₱${_uniformsData[_selectedSubcategory]?[item]?[_selectedSizes[item]]?['price'] ?? 0}',
+                                  style: TextStyle(fontWeight: FontWeight.bold, color: Colors.green),
+                                ),
                               Row(
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
