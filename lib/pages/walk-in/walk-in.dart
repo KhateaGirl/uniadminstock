@@ -140,7 +140,7 @@ class _MainWalkInPageState extends State<WalkinPage> {
         String? size = _selectedSizes[item];
 
         if (quantity > 0 && size != null && size != 'None') {
-          // Step 1: Deduct quantity from Firestore inventory
+          // Deduct quantity from Firestore inventory
           await _deductQuantityFromInventory(item, size, quantity);
 
           // Add the item to the cart
@@ -158,6 +158,12 @@ class _MainWalkInPageState extends State<WalkinPage> {
             'quantity': quantity,
             'cartItemRef': cartItemRef.id,
           });
+
+          // Update Sales History (approved_items collection)
+          await _addToSalesHistory(item, size, quantity, studentName);
+
+          // Update Sales Statistics
+          await _updateSalesStatistics(item, size, quantity);
         }
       }
 
@@ -174,7 +180,44 @@ class _MainWalkInPageState extends State<WalkinPage> {
       Get.snackbar('Success', 'Order submitted successfully!');
     } catch (e) {
       Get.snackbar('Error', 'Failed to submit the order. Please try again.');
-      print(e);
+    }
+  }
+
+// Add to Sales History (approved_items collection)
+  Future<void> _addToSalesHistory(String item, String size, int quantity, String buyerName) async {
+    await FirebaseFirestore.instance.collection('approved_items').add({
+      'itemLabel': item,
+      'itemSize': size,
+      'quantity': quantity,
+      'name': buyerName,
+      'reservationDate': FieldValue.serverTimestamp(),
+      'approvalDate': FieldValue.serverTimestamp(), // You can change this to actual approval date logic
+    });
+  }
+
+// Update Sales Statistics
+  Future<void> _updateSalesStatistics(String item, String size, int quantity) async {
+    String collection = _selectedSubcategory == 'Senior High' ? 'senior_high_sales' : 'college_sales';
+
+    // Reference to the sales document for this item and size
+    DocumentReference salesRef = FirebaseFirestore.instance
+        .collection(collection)
+        .doc(item);
+
+    // Fetch current sales data
+    DocumentSnapshot salesSnapshot = await salesRef.get();
+
+    if (salesSnapshot.exists) {
+      Map<String, dynamic>? salesData = salesSnapshot.data() as Map<String, dynamic>?;
+      int currentSales = salesData?[size] ?? 0;
+      await salesRef.update({
+        size: currentSales + quantity,
+      });
+    } else {
+      // If this item/size doesn't exist in sales stats, create it
+      await salesRef.set({
+        size: quantity,
+      });
     }
   }
 

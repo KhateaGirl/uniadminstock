@@ -7,7 +7,12 @@ class SalesHistoryPage extends StatelessWidget {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
   Future<List<Map<String, dynamic>>> _fetchSalesHistory() async {
-    QuerySnapshot approvedItemsSnapshot = await _firestore.collection('approved_items').get();
+    // Sort the data by 'approvalDate' in descending order
+    QuerySnapshot approvedItemsSnapshot = await _firestore
+        .collection('approved_items')
+        .orderBy('approvalDate', descending: true) // Order by approvalDate in descending order
+        .get();
+
     List<Map<String, dynamic>> salesHistory = [];
 
     for (var doc in approvedItemsSnapshot.docs) {
