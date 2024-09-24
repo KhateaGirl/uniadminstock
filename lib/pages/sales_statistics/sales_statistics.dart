@@ -42,40 +42,49 @@ class _SalesStatisticsPageState extends State<SalesStatisticsPage> {
   Future<void> _fetchSalesData() async {
     try {
       QuerySnapshot salesSnapshot;
+
+      // Fetch the sales data based on the selected period
       if (_selectedPeriod == 'Weekly' || _selectedPeriod == 'Monthly') {
         DateTime now = DateTime.now();
-        DateTime startDate;
-
-        if (_selectedPeriod == 'Weekly') {
-          startDate = now.subtract(Duration(days: 7));
-        } else {
-          startDate = DateTime(now.year, now.month - 1, now.day);
-        }
+        DateTime startDate = _selectedPeriod == 'Weekly'
+            ? now.subtract(Duration(days: 7))
+            : DateTime(now.year, now.month - 1, now.day);
 
         Timestamp firestoreStartDate = Timestamp.fromDate(startDate);
 
         salesSnapshot = await _firestore
             .collection('approved_items')
-            .where('approvedDate', isGreaterThanOrEqualTo: firestoreStartDate)
+            .where('approvalDate', isGreaterThanOrEqualTo: firestoreStartDate)
             .get();
       } else {
+        // Fetch all sales data for "Overall"
         salesSnapshot = await _firestore.collection('approved_items').get();
       }
 
       Map<String, double> collegeSales = {};
       Map<String, double> seniorHighSales = {};
 
+      // Process Sales Data
+      print("Processing Sales Data:");
       for (var doc in salesSnapshot.docs) {
         var sale = doc.data() as Map<String, dynamic>;
+
         String itemLabel = sale['itemLabel'] ?? 'Unknown';
         String itemSize = sale['itemSize'] ?? 'Unknown';
         double quantity = (sale['quantity'] ?? 0).toDouble();
+        String category = sale['category'] ?? 'Unknown';
         String itemKey = '$itemLabel ($itemSize)';
 
-        if (itemLabel.contains('Senior')) {
+        if (category == 'Senior High') {
+          // Senior High sales
           seniorHighSales[itemKey] = (seniorHighSales[itemKey] ?? 0) + quantity;
-        } else {
+          print("Matched Senior High Item: $itemKey with quantity: $quantity");
+        } else if (category == 'College') {
+          // College sales
           collegeSales[itemKey] = (collegeSales[itemKey] ?? 0) + quantity;
+          print("Matched College Item: $itemKey with quantity: $quantity");
+        } else {
+          print("Unknown category for item label: $itemLabel");
         }
       }
 
@@ -84,6 +93,11 @@ class _SalesStatisticsPageState extends State<SalesStatisticsPage> {
         _seniorHighSalesData = seniorHighSales;
         _isLoading = false;
       });
+
+      // Log the results
+      print("College Sales Data: $_collegeSalesData");
+      print("Senior High Sales Data: $_seniorHighSalesData");
+
     } catch (e) {
       print("Error fetching sales data: $e");
       setState(() {
