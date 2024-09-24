@@ -11,9 +11,9 @@ class OverviewPage extends StatefulWidget {
 class _OverviewPageState extends State<OverviewPage> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
+  bool _isLoading = true;
   int _totalSales = 0;
   String _latestSale = 'N/A';
-  bool _isLoading = true;
   double _totalRevenue = 0.0;
 
   Map<String, double> _collegeSalesData = {};
@@ -22,34 +22,7 @@ class _OverviewPageState extends State<OverviewPage> {
   @override
   void initState() {
     super.initState();
-    _fetchSalesHistory();
-    _fetchSalesStatistics();
-  }
-
-  Future<void> _fetchSalesHistory() async {
-    try {
-      QuerySnapshot approvedItemsSnapshot = await _firestore
-          .collection('approved_items')
-          .orderBy('approvalDate', descending: true)
-          .get();
-
-      if (approvedItemsSnapshot.docs.isNotEmpty) {
-        double totalRevenue = 0.0;
-        setState(() {
-          _totalSales = approvedItemsSnapshot.size;
-          var latestSale = approvedItemsSnapshot.docs.first.data() as Map<String, dynamic>;
-          _latestSale = latestSale['itemLabel'] ?? 'N/A';
-
-          // Assuming each document has a 'price' field
-          approvedItemsSnapshot.docs.forEach((doc) {
-            totalRevenue += (doc.data() as Map<String, dynamic>)['price'] ?? 0.0;
-          });
-          _totalRevenue = totalRevenue;
-        });
-      }
-    } catch (e) {
-      print("Error fetching sales history: $e");
-    }
+    _fetchSalesStatistics(); // Keep sales statistics for charts
   }
 
   Future<void> _fetchSalesStatistics() async {
@@ -63,12 +36,12 @@ class _OverviewPageState extends State<OverviewPage> {
         var sale = doc.data() as Map<String, dynamic>;
         String itemLabel = sale['itemLabel'] ?? 'Unknown';
         double quantity = (sale['quantity'] ?? 0).toDouble();
-        String itemKey = itemLabel;
+        String category = sale['category'] ?? 'Unknown';
 
-        if (itemLabel.contains('Senior')) {
-          seniorHighSales[itemKey] = (seniorHighSales[itemKey] ?? 0) + quantity;
-        } else {
-          collegeSales[itemKey] = (collegeSales[itemKey] ?? 0) + quantity;
+        if (category == 'Senior High') {
+          seniorHighSales[itemLabel] = (seniorHighSales[itemLabel] ?? 0) + quantity;
+        } else if (category == 'College') {
+          collegeSales[itemLabel] = (collegeSales[itemLabel] ?? 0) + quantity;
         }
       }
 
@@ -92,33 +65,71 @@ class _OverviewPageState extends State<OverviewPage> {
         title: CustomText(text: "Overview"),
         centerTitle: true,
       ),
-      body: _isLoading
-          ? Center(child: CircularProgressIndicator())
-          : SingleChildScrollView(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            CustomText(text: "Sales Overview", size: 24, weight: FontWeight.bold),
-            SizedBox(height: 20),
-            Row(
-              children: [
-                _buildOverviewCard(Icons.attach_money, 'Total Revenue', '\$$_totalRevenue'),
-                SizedBox(width: 10),
-                _buildOverviewCard(Icons.shopping_cart, 'Total Sales', '$_totalSales'),
-                SizedBox(width: 10),
-                _buildOverviewCard(Icons.new_releases, 'Latest Sale', '$_latestSale'),
-              ],
-            ),
-            SizedBox(height: 30),
-            CustomText(text: "College Sales", size: 18, weight: FontWeight.bold),
-            _buildMiniChartWithLegend(_collegeSalesData),  // Updated to include legend
-            SizedBox(height: 20),
-            CustomText(text: "Senior High Sales", size: 18, weight: FontWeight.bold),
-            _buildMiniChartWithLegend(_seniorHighSalesData),  // Updated to include legend
-            SizedBox(height: 30),
-          ],
-        ),
+      body: StreamBuilder<QuerySnapshot>(
+        stream: _firestore
+            .collection('approved_items')
+            .orderBy('approvalDate', descending: true)
+            .snapshots(), // Real-time updates
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return Center(child: CircularProgressIndicator());
+          }
+
+          if (snapshot.hasError) {
+            return Center(child: CustomText(text: "Error loading data"));
+          }
+
+          if (snapshot.hasData && snapshot.data!.docs.isNotEmpty) {
+            _totalSales = snapshot.data!.docs.length;
+            _totalRevenue = 0.0;
+            _latestSale = 'N/A';
+
+            for (var doc in snapshot.data!.docs) {
+              var sale = doc.data() as Map<String, dynamic>;
+              String itemLabel = sale['itemLabel'] ?? 'Unknown';
+              int quantity = sale['quantity'] ?? 0;
+              double pricePerPiece = sale['pricePerPiece'] ?? 0.0;
+              double totalPrice = quantity * pricePerPiece;
+
+              _totalRevenue += totalPrice;
+
+              if (_latestSale == 'N/A') {
+                _latestSale = itemLabel; // The first entry is the latest
+              }
+            }
+
+            return SingleChildScrollView(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  CustomText(text: "Sales Overview", size: 24, weight: FontWeight.bold),
+                  SizedBox(height: 20),
+                  Row(
+                    children: [
+                      _buildOverviewCard(Icons.attach_money, 'Total Revenue', '₱$_totalRevenue'),
+                      SizedBox(width: 10),
+                      _buildOverviewCard(Icons.shopping_cart, 'Total Sales', '$_totalSales'),
+                      SizedBox(width: 10),
+                      _buildOverviewCard(Icons.new_releases, 'Latest Sale', '$_latestSale'),
+                    ],
+                  ),
+                  SizedBox(height: 30),
+                  CustomText(text: "College Sales", size: 18, weight: FontWeight.bold),
+                  _buildMiniChartWithLegend(_collegeSalesData),
+                  SizedBox(height: 20),
+                  CustomText(text: "Senior High Sales", size: 18, weight: FontWeight.bold),
+                  _buildMiniChartWithLegend(_seniorHighSalesData),
+                  SizedBox(height: 30),
+                ],
+              ),
+            );
+          }
+
+          return Center(
+            child: CustomText(text: "No sales data available"),
+          );
+        },
       ),
     );
   }
@@ -145,21 +156,19 @@ class _OverviewPageState extends State<OverviewPage> {
     );
   }
 
-  // Updated function to build the pie chart with a legend on the side
   Widget _buildMiniChartWithLegend(Map<String, double> salesData) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.start,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Constrain the pie chart to a specific width and height
         SizedBox(
-          width: 150,  // Set a fixed width for the pie chart
-          height: 150,  // Set a fixed height for the pie chart
+          width: 150,
+          height: 150,
           child: PieChart(
             PieChartData(
               sections: salesData.entries.map((entry) {
                 return PieChartSectionData(
-                  color: _getDistinctColor(entry.key), // Set distinct colors for each section
+                  color: _getDistinctColor(entry.key),
                   value: entry.value,
                   title: '${entry.value.toInt()}',
                 );
@@ -169,8 +178,7 @@ class _OverviewPageState extends State<OverviewPage> {
             ),
           ),
         ),
-        SizedBox(width: 20), // Space between the chart and the legend
-        // Legend on the right, wrapped in Expanded to avoid overflow
+        SizedBox(width: 20),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -180,10 +188,10 @@ class _OverviewPageState extends State<OverviewPage> {
                   Container(
                     width: 16,
                     height: 16,
-                    color: _getDistinctColor(entry.key), // Same color as the chart
+                    color: _getDistinctColor(entry.key),
                   ),
                   SizedBox(width: 8),
-                  Text(entry.key, overflow: TextOverflow.ellipsis),  // Handle long labels
+                  Text(entry.key, overflow: TextOverflow.ellipsis),
                 ],
               );
             }).toList(),
@@ -193,7 +201,6 @@ class _OverviewPageState extends State<OverviewPage> {
     );
   }
 
-  // Function to generate distinct colors for the chart sections and legend
   Color _getDistinctColor(String label) {
     final colors = <Color>[
       Colors.blue,
@@ -209,7 +216,7 @@ class _OverviewPageState extends State<OverviewPage> {
     return colors[label.hashCode % colors.length];
   }
 
-  // Helper function to build a bar chart for a given category
+// Helper function to build a bar chart for a given category
   Widget _buildCategorySalesChart(String title, Map<String, double> salesData) {
     return Column(
       children: [

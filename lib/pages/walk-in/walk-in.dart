@@ -16,7 +16,6 @@ class _MainWalkInPageState extends State<WalkinPage> {
   String? _selectedCategory;
   String? _selectedSubcategory;
 
-  // Store data fetched from Firestore
   Map<String, Map<String, Map<String, dynamic>>> _uniformsData = {};
 
   @override
@@ -44,7 +43,7 @@ class _MainWalkInPageState extends State<WalkinPage> {
 
       setState(() {});
     } catch (e) {
-      print('Error fetching inventory data: $e');
+      // Handle error if needed
     }
   }
 
@@ -88,9 +87,13 @@ class _MainWalkInPageState extends State<WalkinPage> {
 
     if (sizesMapDynamic == null) return [];
 
-    Map<String, dynamic> sizesMap = sizesMapDynamic.map((key, value) => MapEntry(key, value['quantity']));
+    // Filter sizes where the quantity is greater than 0
+    Map<String, dynamic> availableSizes = Map.fromEntries(
+        sizesMapDynamic.entries.where((entry) => entry.value['quantity'] > 0)
+    );
 
-    List<String> sortedSizes = _getSortedSizes(sizesMap);
+    // Sort sizes
+    List<String> sortedSizes = _getSortedSizes(availableSizes);
 
     return [
       DropdownMenuItem<String>(
@@ -140,16 +143,15 @@ class _MainWalkInPageState extends State<WalkinPage> {
         String? size = _selectedSizes[item];
 
         if (quantity > 0 && size != null && size != 'None') {
-          // Deduct quantity from Firestore inventory
           await _deductQuantityFromInventory(item, size, quantity);
 
-          // Add the item to the cart
           DocumentReference cartItemRef = await cartRef.add({
             'itemLabel': item,
             'itemSize': size,
             'quantity': quantity,
             'status': 'pending',
             'timestamp': FieldValue.serverTimestamp(),
+            'category': _selectedSubcategory
           });
 
           cartItems.add({
@@ -157,25 +159,25 @@ class _MainWalkInPageState extends State<WalkinPage> {
             'itemSize': size,
             'quantity': quantity,
             'cartItemRef': cartItemRef.id,
+            'category': _selectedSubcategory
           });
 
-          // Update Sales History (approved_items collection)
-          await _addToSalesHistory(item, size, quantity, studentName);
-
-          // Update Sales Statistics
-          await _updateSalesStatistics(item, size, quantity);
+          await _addToSalesHistoryWithCategory(item, size, quantity, studentName, _selectedSubcategory);
+          await _updateSalesStatisticsWithCategory(item, size, quantity, _selectedSubcategory);
         }
       }
 
       CollectionReference adminRef = FirebaseFirestore.instance.collection('admin_transactions');
-
       await adminRef.add({
         'userId': userDoc.id,
         'userName': studentName,
         'studentNumber': studentNumber,
         'cartItems': cartItems,
         'timestamp': FieldValue.serverTimestamp(),
+        'category': _selectedSubcategory,
       });
+
+      await _sendNotificationToUser(userDoc.id, studentName, cartItems);
 
       Get.snackbar('Success', 'Order submitted successfully!');
     } catch (e) {
@@ -183,28 +185,25 @@ class _MainWalkInPageState extends State<WalkinPage> {
     }
   }
 
-// Add to Sales History (approved_items collection)
-  Future<void> _addToSalesHistory(String item, String size, int quantity, String buyerName) async {
+  Future<void> _addToSalesHistoryWithCategory(String item, String size, int quantity, String buyerName, String? category) async {
     await FirebaseFirestore.instance.collection('approved_items').add({
       'itemLabel': item,
       'itemSize': size,
       'quantity': quantity,
       'name': buyerName,
       'reservationDate': FieldValue.serverTimestamp(),
-      'approvalDate': FieldValue.serverTimestamp(), // You can change this to actual approval date logic
+      'approvalDate': FieldValue.serverTimestamp(),
+      'category': category,
     });
   }
 
-// Update Sales Statistics
-  Future<void> _updateSalesStatistics(String item, String size, int quantity) async {
-    String collection = _selectedSubcategory == 'Senior High' ? 'senior_high_sales' : 'college_sales';
+  Future<void> _updateSalesStatisticsWithCategory(String item, String size, int quantity, String? category) async {
+    String collection = category == 'Senior High' ? 'senior_high_sales' : 'college_sales';
 
-    // Reference to the sales document for this item and size
     DocumentReference salesRef = FirebaseFirestore.instance
         .collection(collection)
         .doc(item);
 
-    // Fetch current sales data
     DocumentSnapshot salesSnapshot = await salesRef.get();
 
     if (salesSnapshot.exists) {
@@ -214,7 +213,73 @@ class _MainWalkInPageState extends State<WalkinPage> {
         size: currentSales + quantity,
       });
     } else {
-      // If this item/size doesn't exist in sales stats, create it
+      await salesRef.set({
+        size: quantity,
+      });
+    }
+  }
+
+  Future<void> _sendNotificationToUser(String userId, String studentName, List<Map<String, dynamic>> cartItems) async {
+    String notificationMessage = 'Your order has been placed successfully.';
+
+    List<Map<String, dynamic>> sortedOrderSummary = cartItems.map((item) {
+      String itemLabel = item['itemLabel'];
+      int quantity = item['quantity'];
+      double pricePerPiece = _uniformsData[_selectedSubcategory]?[itemLabel]?[item['itemSize']]['price'] ?? 0.0;
+      double totalPrice = pricePerPiece * quantity;
+
+      return {
+        'itemLabel': itemLabel,
+        'itemSize': item['itemSize'],
+        'quantity': quantity,
+        'pricePerPiece': pricePerPiece,
+        'totalPrice': totalPrice
+      };
+    }).toList();
+
+    sortedOrderSummary.sort((a, b) => a['itemLabel'].compareTo(b['itemLabel']));
+
+    CollectionReference notificationsRef = FirebaseFirestore.instance
+        .collection('users')
+        .doc(userId)
+        .collection('notifications');
+
+    await notificationsRef.add({
+      'title': 'Order Placed',
+      'message': notificationMessage,
+      'orderSummary': sortedOrderSummary,
+      'timestamp': FieldValue.serverTimestamp(),
+      'status': 'unread',
+    });
+  }
+
+  Future<void> _addToSalesHistory(String item, String size, int quantity, String buyerName) async {
+    await FirebaseFirestore.instance.collection('approved_items').add({
+      'itemLabel': item,
+      'itemSize': size,
+      'quantity': quantity,
+      'name': buyerName,
+      'reservationDate': FieldValue.serverTimestamp(),
+      'approvalDate': FieldValue.serverTimestamp(),
+    });
+  }
+
+  Future<void> _updateSalesStatistics(String item, String size, int quantity) async {
+    String collection = _selectedSubcategory == 'Senior High' ? 'senior_high_sales' : 'college_sales';
+
+    DocumentReference salesRef = FirebaseFirestore.instance
+        .collection(collection)
+        .doc(item);
+
+    DocumentSnapshot salesSnapshot = await salesRef.get();
+
+    if (salesSnapshot.exists) {
+      Map<String, dynamic>? salesData = salesSnapshot.data() as Map<String, dynamic>?;
+      int currentSales = salesData?[size] ?? 0;
+      await salesRef.update({
+        size: currentSales + quantity,
+      });
+    } else {
       await salesRef.set({
         size: quantity,
       });
@@ -222,56 +287,32 @@ class _MainWalkInPageState extends State<WalkinPage> {
   }
 
   Future<void> _deductQuantityFromInventory(String item, String size, int orderQuantity) async {
-    // Determine the collection based on the selected category (Senior High or College)
     String collection = _selectedSubcategory == 'Senior High' ? 'Senior_high_items' : 'College_items';
 
-    // Reference the item in the Firestore collection
     DocumentReference itemRef = FirebaseFirestore.instance
         .collection('Inventory_stock')
         .doc(collection)
         .collection('Items')
         .doc(item);
 
-    // Get the current document snapshot for the item
     DocumentSnapshot itemSnapshot = await itemRef.get();
 
     if (itemSnapshot.exists) {
       Map<String, dynamic>? itemData = itemSnapshot.data() as Map<String, dynamic>?;
 
-      // Check if the item has data and the selected size exists
       if (itemData != null && itemData.containsKey(size)) {
         int currentQuantity = itemData[size]['quantity'] ?? 0;
 
-        // Log the current quantity and the order quantity
-        print('Current Quantity for $item ($size): $currentQuantity');
-        print('Order Quantity: $orderQuantity');
+        int newQuantity = currentQuantity - orderQuantity;
 
-        if (currentQuantity > 0) {
-          // Calculate the new quantity after the order
-          int newQuantity = currentQuantity - orderQuantity;
-
-          if (newQuantity < 0) {
-            newQuantity = 0; // Avoid negative quantities
-          }
-
-          // Log the new quantity to be updated
-          print('New Quantity: $newQuantity');
-
-          // Update the Firestore document with the new quantity
-          // Use the correct path for updating the nested quantity field (e.g., 2XL.quantity)
-          await itemRef.update({
-            '$size.quantity': newQuantity, // Correctly reference the nested field
-          });
-
-          print('Firestore updated successfully for $item ($size)');
-        } else {
-          print('Insufficient stock for $item ($size)');
+        if (newQuantity < 0) {
+          newQuantity = 0;
         }
-      } else {
-        print('Size $size not found for item $item');
+
+        await itemRef.update({
+          '$size.quantity': newQuantity,
+        });
       }
-    } else {
-      print('Item $item not found');
     }
   }
 

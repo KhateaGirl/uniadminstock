@@ -99,33 +99,36 @@ class _InventoryPageState extends State<InventoryPage> {
     try {
       String collection = isSeniorHigh ? 'Senior_high_items' : 'College_items';
 
-      DocumentSnapshot documentSnapshot = await firestore
+      // Get the document reference for the item
+      DocumentReference itemRef = firestore
           .collection('Inventory_stock')
           .doc(collection)
           .collection('Items')
-          .doc(item)
-          .get();
+          .doc(item);
 
+      // Fetch the current data for the item
+      DocumentSnapshot documentSnapshot = await itemRef.get();
       Map<String, dynamic>? currentItemData = documentSnapshot.data() as Map<String, dynamic>?;
 
-      int existingQuantity = currentItemData?[customSize]?['quantity'] ?? 0;
+      // Ensure the size exists as a map with quantity and price fields
+      Map<String, dynamic> sizeData = currentItemData != null && currentItemData[customSize] is Map<String, dynamic>
+          ? currentItemData[customSize] as Map<String, dynamic>
+          : {'quantity': 0, 'price': 0.0};  // Default values if size doesn't exist
 
+      // Increment the existing quantity by the provided quantity
+      int existingQuantity = sizeData['quantity'] ?? 0;
       int newQuantity = existingQuantity + quantity;
 
+      // Set the new price (overwrite the old price with the new one)
       double newPrice = price;
 
-      await firestore
-          .collection('Inventory_stock')
-          .doc(collection)
-          .collection('Items')
-          .doc(item)
-          .update({
-        customSize: {
-          'quantity': newQuantity,
-          'price': newPrice,
-        }
+      // Update or create the custom size field in Firestore
+      await itemRef.update({
+        '$customSize.quantity': newQuantity,
+        '$customSize.price': newPrice,
       });
 
+      // Update the local state to reflect the changes
       setState(() {
         if (isSeniorHigh) {
           _seniorHighStockQuantities[item]?['stock']?[customSize] = {
