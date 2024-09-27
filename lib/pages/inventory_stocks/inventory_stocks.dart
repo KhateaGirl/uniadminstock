@@ -20,12 +20,33 @@ class _InventoryPageState extends State<InventoryPage> {
   @override
   void initState() {
     super.initState();
-    _fetchStockData();
+    _fetchInventoryData();
   }
 
-  Future<void> _fetchStockData() async {
+  Future<void> _fetchInventoryData() async {
     try {
-      // Fetch the Senior High items
+      setState(() {
+        _loading = true;
+      });
+
+      await Future.wait([
+        _fetchSeniorHighStock(),
+        _fetchCollegeStock(),
+        _fetchMerchStock(),
+      ]);
+
+      setState(() {
+        _loading = false;
+      });
+    } catch (e) {
+      setState(() {
+        _loading = false;
+      });
+    }
+  }
+
+  Future<void> _fetchSeniorHighStock() async {
+    try {
       QuerySnapshot seniorHighSnapshot = await firestore
           .collection('Inventory_stock')
           .doc('senior_high_items')
@@ -39,15 +60,16 @@ class _InventoryPageState extends State<InventoryPage> {
         String? imagePath = data['imagePath'] as String?;
         String label = data['label'] != null ? data['label'] as String : doc.id;
 
-        data.forEach((key, value) {
-          if (value is Map && value.containsKey('quantity')) {
-            stockData[key] = {
-              'quantity': value['quantity'],
-              'price': value.containsKey('price') ? value['price'] : 0,  // Default to 0 if price is missing
-            };
-          }
-        });
-
+        if (data.containsKey('sizes') && data['sizes'] is Map) {
+          Map<String, dynamic> sizes = data['sizes'] as Map<String, dynamic>;
+          sizes.forEach((sizeKey, sizeValue) {
+            if (sizeValue is Map && sizeValue.containsKey('quantity')) {
+              stockData[sizeKey] = {
+                'quantity': sizeValue['quantity'],
+              };
+            }
+          });
+        }
 
         seniorHighData[doc.id] = {
           'stock': stockData,
@@ -57,7 +79,15 @@ class _InventoryPageState extends State<InventoryPage> {
         };
       });
 
-      // Fetch the College items for each course label
+      setState(() {
+        _seniorHighStockQuantities = seniorHighData;
+      });
+    } catch (e) {
+    }
+  }
+
+  Future<void> _fetchCollegeStock() async {
+    try {
       Map<String, Map<String, dynamic>> collegeData = {};
       for (String courseLabel in _courseLabels) {
         QuerySnapshot courseSnapshot = await firestore
@@ -83,7 +113,15 @@ class _InventoryPageState extends State<InventoryPage> {
         collegeData[courseLabel] = courseItems;
       }
 
-      // Fetch the Merch & Accessories items
+      setState(() {
+        _collegeStockQuantities = collegeData;
+      });
+    } catch (e) {
+    }
+  }
+
+  Future<void> _fetchMerchStock() async {
+    try {
       DocumentSnapshot merchSnapshot = await firestore
           .collection('Inventory_stock')
           .doc('Merch & Accessories')
@@ -103,80 +141,81 @@ class _InventoryPageState extends State<InventoryPage> {
       });
 
       setState(() {
-        _seniorHighStockQuantities = seniorHighData;
-        _collegeStockQuantities = collegeData;
         _merchStockQuantities = processedMerchData;
-        _loading = false;
       });
     } catch (e) {
-      print('Failed to fetch inventory data: $e');
     }
   }
 
   Future<void> _addCustomSize(String itemKey, String customSize, int quantity, double? price, String collectionType) async {
     try {
-      DocumentReference itemRef = firestore
-          .collection('Inventory_stock')
-          .doc(collectionType)
-          .collection('Items')
-          .doc(itemKey);
+      DocumentReference itemRef;
+
+      if (collectionType == 'Merch & Accessories') {
+        itemRef = FirebaseFirestore.instance.collection('Inventory_stock').doc('Merch & Accessories');
+      } else if (collectionType == 'senior_high_items') {
+        itemRef = FirebaseFirestore.instance
+            .collection('Inventory_stock')
+            .doc('senior_high_items')
+            .collection('Items')
+            .doc(itemKey);
+      } else {
+        String? courseLabel = _selectedCourseLabel;
+        if (courseLabel == null) {
+          throw 'Course label not selected';
+        }
+        itemRef = FirebaseFirestore.instance
+            .collection('Inventory_stock')
+            .doc('college_items')
+            .collection(courseLabel)
+            .doc(itemKey);
+      }
 
       DocumentSnapshot documentSnapshot = await itemRef.get();
       Map<String, dynamic>? currentItemData = documentSnapshot.data() as Map<String, dynamic>?;
 
-      // Get the current data for the size or default values
-      Map<String, dynamic> sizeData = currentItemData != null && currentItemData[customSize] is Map<String, dynamic>
-          ? currentItemData[customSize] as Map<String, dynamic>
-          : {'quantity': 0};  // Note: No 'price' field in the size data now
+      Map<String, dynamic> sizesData = currentItemData != null && currentItemData['sizes'] is Map<String, dynamic>
+          ? currentItemData['sizes'] as Map<String, dynamic> : {};
 
-      int newQuantity = (sizeData['quantity'] ?? 0) + quantity;
+      Map<String, dynamic> sizeData = sizesData[customSize] ?? {'quantity': 0};
+      sizeData['quantity'] = (sizeData['quantity'] ?? 0) + quantity;
+      sizesData[customSize] = sizeData;
 
-      // Prepare the update data for Firestore
-      Map<String, dynamic> updateData = {
-        '$customSize.quantity': newQuantity, // Only update the quantity in the nested size
-      };
+      Map<String, dynamic> updateData = {'sizes': sizesData};
 
-      // Only update the main price if a new valid price is provided
-      if (price != null && price > 0) {
-        updateData['price'] = price;  // Update the global item price
+      if (price != null) {
+        updateData['price'] = price;
       }
 
       await itemRef.update(updateData);
 
-      // Update the local state with the new size data and the overall price
       setState(() {
         if (collectionType == 'senior_high_items') {
-          _seniorHighStockQuantities[itemKey]?['stock']?[customSize] = {
-            'quantity': newQuantity,  // Update quantity only in the nested size
-          };
-          if (price != null && price > 0) {
-            _seniorHighStockQuantities[itemKey]?['price'] = price;  // Update the item's overall price
+          _seniorHighStockQuantities[itemKey]?['sizes'] = sizesData;
+          if (price != null) {
+            _seniorHighStockQuantities[itemKey]?['price'] = price;
           }
-        } else if (collectionType == 'college_items') {
-          _collegeStockQuantities[_selectedCourseLabel!]?[itemKey]?['stock']?[customSize] = {
-            'quantity': newQuantity,
-          };
-          if (price != null && price > 0) {
-            _collegeStockQuantities[_selectedCourseLabel!]?[itemKey]?['price'] = price;
+        } else if (collectionType == 'Merch & Accessories') {
+          _merchStockQuantities[itemKey]?['sizes'] = sizesData;
+          if (price != null) {
+            _merchStockQuantities[itemKey]?['price'] = price;
           }
         } else {
-          _merchStockQuantities[itemKey]?['stock']?[customSize] = {
-            'quantity': newQuantity,
-          };
-          if (price != null && price > 0) {
-            _merchStockQuantities[itemKey]?['price'] = price;
+          _collegeStockQuantities[_selectedCourseLabel!]?[itemKey]?['sizes'] = sizesData;
+          if (price != null) {
+            _collegeStockQuantities[_selectedCourseLabel!]?[itemKey]?['price'] = price;
           }
         }
       });
     } catch (e) {
-      print('Failed to add custom size: $e');
     }
   }
 
   void _showCustomSizeDialog(String itemKey, String collectionType) {
     String customSize = 'Small';
     int customQuantity = 1;
-    double? customPrice; // Make price nullable to validate it later
+    double? customPrice;
+    TextEditingController _priceController = TextEditingController();
 
     showDialog(
       context: context,
@@ -195,7 +234,7 @@ class _InventoryPageState extends State<InventoryPage> {
                         customSize = newValue!;
                       });
                     },
-                    items: ['Small', 'Medium', 'Large', 'XL', '2XL', '3XL', '4XL']
+                    items: ['Small', 'Medium', 'Large', 'XL', '2XL', '3XL', '4XL', '5XL', '6XL', '7XL']
                         .map<DropdownMenuItem<String>>((String value) {
                       return DropdownMenuItem<String>(
                         value: value,
@@ -227,10 +266,14 @@ class _InventoryPageState extends State<InventoryPage> {
                     ],
                   ),
                   TextFormField(
+                    controller: _priceController,
                     keyboardType: TextInputType.number,
-                    decoration: InputDecoration(labelText: 'Price'),
+                    decoration: InputDecoration(
+                      labelText: 'Price',
+                      hintText: 'Enter price (optional)',
+                    ),
                     onChanged: (value) {
-                      customPrice = double.tryParse(value); // Try to parse the price
+                      customPrice = double.tryParse(value);
                     },
                   ),
                 ],
@@ -244,16 +287,8 @@ class _InventoryPageState extends State<InventoryPage> {
                 ),
                 ElevatedButton(
                   onPressed: () {
-                    // Check if price is valid
-                    if (customPrice == null || customPrice! <= 0) {
-                      // Show an error if price is invalid
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text('Please enter a valid price')),
-                      );
-                    } else {
-                      _addCustomSize(itemKey, customSize, customQuantity, customPrice!, collectionType);
-                      Navigator.of(context).pop();
-                    }
+                    _addCustomSize(itemKey, customSize, customQuantity, customPrice, collectionType);
+                    Navigator.of(context).pop();
                   },
                   child: Text('Add'),
                 ),
@@ -264,12 +299,11 @@ class _InventoryPageState extends State<InventoryPage> {
       },
     );
   }
-
   Widget _buildItemCard(String itemKey, Map<String, dynamic> itemData, String collectionType) {
     String? imagePath = itemData['imagePath'];
     String label = itemData['label'];
-    double price = itemData['price']; // Display the updated overall price
-    Map<String, dynamic>? stock = itemData['stock']; // This holds the sizes like Small, Medium, etc.
+    double price = itemData['price'];
+    Map<String, dynamic>? stock = itemData['sizes'];
 
     return Container(
       padding: EdgeInsets.all(8),
@@ -308,13 +342,11 @@ class _InventoryPageState extends State<InventoryPage> {
             style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
           ),
           SizedBox(height: 8),
-          // Show the updated main price of the item
           Text(
-            '₱$price', // Display the overall price of the item
+            '₱$price',
             style: TextStyle(fontWeight: FontWeight.bold, color: Colors.green),
           ),
           SizedBox(height: 8),
-          // Display available sizes and their quantities with increment/decrement buttons
           if (stock != null && stock.isNotEmpty)
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -347,7 +379,7 @@ class _InventoryPageState extends State<InventoryPage> {
               }).toList(),
             )
           else
-            Text('No sizes available'),  // Fallback if no sizes are found
+            Text('No sizes available'),
           ElevatedButton(
             onPressed: () {
               _showCustomSizeDialog(itemKey, collectionType);
@@ -361,32 +393,39 @@ class _InventoryPageState extends State<InventoryPage> {
 
   Future<void> _updateSizeQuantity(String itemKey, String size, int newQuantity, String collectionType) async {
     try {
-      DocumentReference itemRef = firestore
-          .collection('Inventory_stock')
-          .doc(collectionType)
-          .collection('Items')
-          .doc(itemKey);
+      DocumentReference itemRef;
 
-      // Update the size quantity in Firestore
+      if (collectionType == 'Merch & Accessories') {
+        itemRef = firestore.collection('Inventory_stock').doc('Merch & Accessories');
+      } else if (collectionType == 'senior_high_items') {
+        itemRef = firestore.collection('Inventory_stock').doc('senior_high_items').collection('Items').doc(itemKey);
+      } else {
+        String? courseLabel = _selectedCourseLabel;
+        if (courseLabel == null) {
+          throw 'Course label not selected';
+        }
+        itemRef = firestore.collection('Inventory_stock')
+            .doc('college_items')
+            .collection(courseLabel)
+            .doc(itemKey);
+      }
+
       await itemRef.update({
-        '$size.quantity': newQuantity,
+        'sizes.$size.quantity': newQuantity,
       });
 
-      // Update the local state with the new quantity
       setState(() {
         if (collectionType == 'senior_high_items') {
-          _seniorHighStockQuantities[itemKey]?['stock']?[size]['quantity'] = newQuantity;
-        } else if (collectionType == 'college_items') {
-          _collegeStockQuantities[_selectedCourseLabel!]?[itemKey]?['stock']?[size]['quantity'] = newQuantity;
+          _seniorHighStockQuantities[itemKey]?['sizes']?[size]['quantity'] = newQuantity;
+        } else if (collectionType == 'Merch & Accessories') {
+          _merchStockQuantities[itemKey]?['sizes']?[size]['quantity'] = newQuantity;
         } else {
-          _merchStockQuantities[itemKey]?['stock']?[size]['quantity'] = newQuantity;
+          _collegeStockQuantities[_selectedCourseLabel!]?[itemKey]?['sizes']?[size]['quantity'] = newQuantity;
         }
       });
     } catch (e) {
-      print('Failed to update size quantity: $e');
     }
   }
-
 
   @override
   Widget build(BuildContext context) {
