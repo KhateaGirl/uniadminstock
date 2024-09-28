@@ -329,7 +329,7 @@
               crossAxisCount: 3,
               crossAxisSpacing: 8,
               mainAxisSpacing: 8,
-              childAspectRatio: 2,
+              childAspectRatio: 1.5,
             ),
             itemCount: _seniorHighStockQuantities.keys.length,
             itemBuilder: (context, index) {

@@ -432,7 +432,16 @@ class _InventoryPageState extends State<InventoryPage> {
     return Scaffold(
       appBar: AppBar(
         title: Text('Inventory Page'),
+        actions: [
+          IconButton(
+            icon: Icon(Icons.refresh),
+            onPressed: () {
+              _fetchInventoryData(); // Manually refresh the data
+            },
+          ),
+        ],
       ),
+      // Show loading spinner while data is being fetched
       body: _loading
           ? Center(child: CircularProgressIndicator())
           : Padding(
@@ -443,7 +452,9 @@ class _InventoryPageState extends State<InventoryPage> {
               'Senior High Inventory',
               style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
             ),
-            GridView.count(
+            _seniorHighStockQuantities.isEmpty
+                ? Center(child: Text('No items available'))
+                : GridView.count(
               crossAxisCount: 3,
               shrinkWrap: true,
               physics: NeverScrollableScrollPhysics(),

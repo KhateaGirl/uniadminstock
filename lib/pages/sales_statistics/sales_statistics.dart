@@ -42,49 +42,52 @@ class _SalesStatisticsPageState extends State<SalesStatisticsPage> {
   Future<void> _fetchSalesData() async {
     try {
       QuerySnapshot salesSnapshot;
+      DateTime now = DateTime.now();
+      DateTime startDate;
+
+      if (_selectedPeriod == 'Weekly') {
+        startDate = now.subtract(Duration(days: 7));
+      } else if (_selectedPeriod == 'Monthly') {
+        startDate = DateTime(now.year, now.month - 1, now.day);
+      } else {
+        startDate = DateTime(1970); // Fetch all data for "Overall"
+      }
+
+      Timestamp firestoreStartDate = Timestamp.fromDate(startDate);
 
       // Fetch the sales data based on the selected period
-      if (_selectedPeriod == 'Weekly' || _selectedPeriod == 'Monthly') {
-        DateTime now = DateTime.now();
-        DateTime startDate = _selectedPeriod == 'Weekly'
-            ? now.subtract(Duration(days: 7))
-            : DateTime(now.year, now.month - 1, now.day);
-
-        Timestamp firestoreStartDate = Timestamp.fromDate(startDate);
-
-        salesSnapshot = await _firestore
-            .collection('approved_items')
-            .where('approvalDate', isGreaterThanOrEqualTo: firestoreStartDate)
-            .get();
+      if (_selectedPeriod == 'Overall') {
+        salesSnapshot = await _firestore.collection('admin_transactions').get();
       } else {
-        // Fetch all sales data for "Overall"
-        salesSnapshot = await _firestore.collection('approved_items').get();
+        salesSnapshot = await _firestore
+            .collection('admin_transactions')
+            .where('timestamp', isGreaterThanOrEqualTo: firestoreStartDate)
+            .get();
       }
 
       Map<String, double> collegeSales = {};
       Map<String, double> seniorHighSales = {};
 
-      // Process Sales Data
-      print("Processing Sales Data:");
+      // Process sales data from admin_transactions collection
       for (var doc in salesSnapshot.docs) {
-        var sale = doc.data() as Map<String, dynamic>;
+        var transactionData = doc.data() as Map<String, dynamic>;
+        List<dynamic> cartItems = transactionData['cartItems'] ?? [];
 
-        String itemLabel = sale['itemLabel'] ?? 'Unknown';
-        String itemSize = sale['itemSize'] ?? 'Unknown';
-        double quantity = (sale['quantity'] ?? 0).toDouble();
-        String category = sale['category'] ?? 'Unknown';
-        String itemKey = '$itemLabel ($itemSize)';
+        for (var item in cartItems) {
+          Map<String, dynamic> saleItem = item as Map<String, dynamic>;
+          String itemLabel = saleItem['itemLabel'] ?? 'Unknown';
+          String itemSize = saleItem['itemSize'] ?? 'Unknown';
+          double quantity = (saleItem['quantity'] ?? 0).toDouble();
+          String category = saleItem['category'] ?? 'Unknown';
+          String itemKey = '$itemLabel ($itemSize)';
 
-        if (category == 'Senior High') {
-          // Senior High sales
-          seniorHighSales[itemKey] = (seniorHighSales[itemKey] ?? 0) + quantity;
-          print("Matched Senior High Item: $itemKey with quantity: $quantity");
-        } else if (category == 'College') {
-          // College sales
-          collegeSales[itemKey] = (collegeSales[itemKey] ?? 0) + quantity;
-          print("Matched College Item: $itemKey with quantity: $quantity");
-        } else {
-          print("Unknown category for item label: $itemLabel");
+          if (category == 'senior_high_items') {
+            // Senior High sales
+            seniorHighSales[itemKey] = (seniorHighSales[itemKey] ?? 0) + quantity;
+          } else if (category == 'college_items') {
+            // College sales
+            collegeSales[itemKey] = (collegeSales[itemKey] ?? 0) + quantity;
+          }
         }
       }
 
@@ -93,11 +96,6 @@ class _SalesStatisticsPageState extends State<SalesStatisticsPage> {
         _seniorHighSalesData = seniorHighSales;
         _isLoading = false;
       });
-
-      // Log the results
-      print("College Sales Data: $_collegeSalesData");
-      print("Senior High Sales Data: $_seniorHighSalesData");
-
     } catch (e) {
       print("Error fetching sales data: $e");
       setState(() {
