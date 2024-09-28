@@ -23,9 +23,9 @@ class SalesHistoryPage extends StatelessWidget {
       ),
       body: StreamBuilder<QuerySnapshot>(
         stream: _firestore
-            .collection('approved_items')
-            .orderBy('approvalDate', descending: true)
-            .snapshots(), // Listen to real-time updates
+            .collection('admin_transactions')
+            .orderBy('timestamp', descending: true)
+            .snapshots(), // Listen to real-time updates from admin_transactions
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return Center(
@@ -40,7 +40,27 @@ class SalesHistoryPage extends StatelessWidget {
               child: CustomText(text: "No sales history found"),
             );
           } else if (snapshot.hasData) {
-            final salesHistory = snapshot.data!.docs;
+            final transactions = snapshot.data!.docs;
+
+            // List to hold all sales items from transactions
+            List<Map<String, dynamic>> allSalesItems = [];
+
+            // Extracting each transaction's cart items
+            transactions.forEach((transactionDoc) {
+              var transactionData = transactionDoc.data() as Map<String, dynamic>;
+              List<dynamic> cartItems = transactionData['cartItems'] ?? [];
+
+              // Add additional transaction details to each cart item, and ensure type conversion
+              cartItems.forEach((item) {
+                Map<String, dynamic> saleItem = item as Map<String, dynamic>;
+                saleItem['userName'] = transactionData['userName'] ?? 'N/A';
+                saleItem['studentNumber'] = transactionData['studentNumber'] ?? 'N/A';
+                saleItem['timestamp'] = transactionData['timestamp'];
+                allSalesItems.add(saleItem);
+              });
+            });
+
+            // Build the sales history table
             return SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               child: DataTable(
@@ -48,30 +68,23 @@ class SalesHistoryPage extends StatelessWidget {
                   DataColumn(label: Text('Item Label')),
                   DataColumn(label: Text('Item Size')),
                   DataColumn(label: Text('Quantity')),
-                  DataColumn(label: Text('Price/Item (₱)')),
-                  DataColumn(label: Text('Total Price (₱)')),
                   DataColumn(label: Text('Category')),
                   DataColumn(label: Text('Buyer Name')),
-                  DataColumn(label: Text('Reservation Date')),
-                  DataColumn(label: Text('Approval Date')),
+                  DataColumn(label: Text('Student Number')),
+                  DataColumn(label: Text('Order Timestamp')),
                 ],
-                rows: salesHistory.map((saleDoc) {
-                  var sale = saleDoc.data() as Map<String, dynamic>;
-                  int quantity = sale['quantity'] ?? 0;
-                  double pricePerItem = sale['pricePerPiece'] ?? 0.0;
-                  double totalPrice = quantity * pricePerItem;
-                  String category = sale['category'] ?? 'N/A';
+                rows: allSalesItems.map((saleItem) {
+                  int quantity = saleItem['quantity'] ?? 0;
+                  String category = saleItem['category'] ?? 'N/A';
 
                   return DataRow(cells: [
-                    DataCell(Text(sale['itemLabel'] ?? 'N/A')),
-                    DataCell(Text(sale['itemSize'] ?? 'N/A')),
+                    DataCell(Text(saleItem['itemLabel'] ?? 'N/A')),
+                    DataCell(Text(saleItem['itemSize'] ?? 'N/A')),
                     DataCell(Text(quantity.toString())),
-                    DataCell(Text('₱${pricePerItem.toStringAsFixed(2)}')),
-                    DataCell(Text('₱${totalPrice.toStringAsFixed(2)}')),
                     DataCell(Text(category)),
-                    DataCell(Text(sale['name'] ?? 'N/A')),
-                    DataCell(Text(_formatDate(sale['reservationDate'] as Timestamp))),
-                    DataCell(Text(_formatDate(sale['approvalDate'] as Timestamp))),
+                    DataCell(Text(saleItem['userName'] ?? 'N/A')),
+                    DataCell(Text(saleItem['studentNumber'] ?? 'N/A')),
+                    DataCell(Text(_formatDate(saleItem['timestamp'] as Timestamp))),
                   ]);
                 }).toList(),
               ),

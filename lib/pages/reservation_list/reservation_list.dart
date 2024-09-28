@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:unistock/widgets/custom_text.dart';
+import 'package:intl/intl.dart';
 
 class ReservationListPage extends StatelessWidget {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
@@ -12,6 +13,7 @@ class ReservationListPage extends StatelessWidget {
 
     for (var userDoc in usersSnapshot.docs) {
       String userName = userDoc['name'] ?? 'Unknown User';
+      print("Processing user: $userName (${userDoc.id})");
 
       // Fetch pending reservations from the user's cart
       QuerySnapshot cartSnapshot = await _firestore
@@ -24,18 +26,24 @@ class ReservationListPage extends StatelessWidget {
       for (var cartDoc in cartSnapshot.docs) {
         Map<String, dynamic> reservationData = cartDoc.data() as Map<String, dynamic>;
         String itemLabel = reservationData['itemLabel'] ?? 'Unknown';  // Ensure it won't be null
-        String itemSize = reservationData['itemSize'] ?? 'Unknown';    // Ensure it won't be null
+        String itemSize = reservationData['itemSize'] ?? 'No Size';    // Default value for item size
         String category = reservationData['category'] ?? 'Unknown';    // Ensure it won't be null
+        String courseLabel = reservationData['courseLabel'] ?? 'No Course'; // Default value for courseLabel
+        Timestamp reservationDate = reservationData['timestamp'] ?? Timestamp.now(); // Ensure timestamp is present
 
-        // Fetch price from the inventory based on itemLabel and itemSize
-        double price = await _fetchItemPrice(itemLabel, itemSize, category);
+        // Fetch the price directly from the reservation data
+        double price = (reservationData['price'] as num?)?.toDouble() ?? 0.0;
 
-        // Add the price to the reservation data
+        print("Item details - itemLabel: $itemLabel, itemSize: $itemSize, category: $category, price: $price");
+
+        // Add the price and additional fields to the reservation data
         reservationData['price'] = price;
-
         reservationData['userName'] = userName;
         reservationData['userId'] = userDoc.id;
         reservationData['cartId'] = cartDoc.id;
+        reservationData['courseLabel'] = courseLabel;
+        reservationData['itemSize'] = itemSize;
+        reservationData['reservationDate'] = reservationDate;
 
         allPendingReservations.add(reservationData);
       }
@@ -44,40 +52,9 @@ class ReservationListPage extends StatelessWidget {
     return allPendingReservations;
   }
 
-  // Function to fetch price based on itemLabel, itemSize, and category (College/Senior High)
-  Future<double> _fetchItemPrice(String itemLabel, String itemSize, String category) async {
-    try {
-      String collection = category == 'Senior High' ? 'Senior_high_items' : 'College_items';
-
-      // Fetch the item from the Inventory_stock collection
-      DocumentSnapshot itemSnapshot = await _firestore
-          .collection('Inventory_stock')
-          .doc(collection)
-          .collection('Items')
-          .doc(itemLabel)
-          .get();
-
-      if (itemSnapshot.exists) {
-        Map<String, dynamic> itemData = itemSnapshot.data() as Map<String, dynamic>? ?? {};
-
-        // Check if the size exists and has a price
-        if (itemData != null && itemData.containsKey(itemSize)) {
-          return itemData[itemSize]['price']?.toDouble() ?? 0.0;
-        } else {
-          print("Size not found for item: $itemLabel, size: $itemSize");
-        }
-      } else {
-        print("Item not found in inventory: $itemLabel");
-      }
-    } catch (e) {
-      print("Error fetching item price: $e");
-    }
-
-    return 0.0; // Return 0 if no price is found
-  }
-
   Future<void> _approveReservation(Map<String, dynamic> reservation) async {
     try {
+      // Fetch the user's cart document
       DocumentSnapshot cartDoc = await _firestore
           .collection('users')
           .doc(reservation['userId'])
@@ -87,6 +64,36 @@ class ReservationListPage extends StatelessWidget {
 
       Timestamp reservationDate = cartDoc['timestamp'];
 
+      // Determine the category based on the subcategory value
+      String mainCategory = reservation['category'];
+      if (mainCategory == 'college_items' || mainCategory == 'senior_high_items') {
+        mainCategory = 'Uniform';
+      }
+
+      // Fetch the userId and studentId that matches the userName
+      String userName = reservation['userName'];
+
+      // Query the users collection to find the matching user document by name
+      QuerySnapshot usersSnapshot = await _firestore
+          .collection('users')
+          .where('name', isEqualTo: userName)
+          .get();
+
+      if (usersSnapshot.docs.isEmpty) {
+        throw Exception('User with the provided userName not found');
+      }
+
+      DocumentSnapshot userDoc = usersSnapshot.docs.first;
+
+      // Cast the data to Map<String, dynamic> to access fields properly
+      Map<String, dynamic>? userData = userDoc.data() as Map<String, dynamic>?;
+
+      String userId = userDoc.id;
+      String studentId = (userData != null && userData.containsKey('studentId'))
+          ? userData['studentId']
+          : 'Unknown';
+
+      // Update the status of the reservation to 'approved'
       await _firestore
           .collection('users')
           .doc(reservation['userId'])
@@ -94,6 +101,7 @@ class ReservationListPage extends StatelessWidget {
           .doc(reservation['cartId'])
           .update({'status': 'approved'});
 
+      // Add to approved_items collection
       await _firestore.collection('approved_items').add({
         'reservationDate': reservationDate,
         'approvalDate': FieldValue.serverTimestamp(),
@@ -104,8 +112,22 @@ class ReservationListPage extends StatelessWidget {
         'pricePerPiece': reservation['price'], // Add price to approved items
       });
 
+      // Store the approved reservation in the admin_transactions collection
+      await _firestore.collection('admin_transactions').add({
+        'cartItemRef': reservation['cartId'],
+        'category': mainCategory,
+        'courseLabel': reservation['courseLabel'],
+        'itemLabel': reservation['itemLabel'],
+        'itemSize': reservation['itemSize'],
+        'quantity': reservation['quantity'],
+        'studentNumber': studentId, // Corrected to use 'studentId'
+        'timestamp': FieldValue.serverTimestamp(), // Approval timestamp
+        'userId': userId,
+        'userName': userName,
+      });
+
       // Send notification to the user after approving
-      await _sendNotificationToUser(reservation['userId'], reservation['userName'], reservation);
+      await _sendNotificationToUser(userId, userName, reservation);
 
       print('Reservation approved successfully');
     } catch (e) {
@@ -163,7 +185,6 @@ class ReservationListPage extends StatelessWidget {
               ),
             );
           } else if (snapshot.hasData && snapshot.data!.isEmpty) {
-            print('No pending reservations found');
             return Center(
               child: CustomText(
                 text: "No pending reservations found",
@@ -174,10 +195,13 @@ class ReservationListPage extends StatelessWidget {
             return SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               child: DataTable(
+                columnSpacing: 16.0, // Adjust column spacing to align better
                 columns: [
                   DataColumn(label: Text('Item Label')),
+                  DataColumn(label: Text('Item Size')),
+                  DataColumn(label: Text('Course Label')),
                   DataColumn(label: Text('Price')),
-                  DataColumn(label: Text('Status')),
+                  DataColumn(label: Text('Reservation Date')),
                   DataColumn(label: Text('User Name')),
                   DataColumn(label: Text('Image')),
                   DataColumn(label: Text('Action')),
@@ -185,8 +209,12 @@ class ReservationListPage extends StatelessWidget {
                 rows: reservations.map((reservation) {
                   return DataRow(cells: [
                     DataCell(Text(reservation['itemLabel'] ?? 'No label')),
-                    DataCell(Text('₱${reservation['price'].toString()}')), // Show price
-                    DataCell(Text(reservation['status'] ?? 'No status')),
+                    DataCell(Text(reservation['itemSize'] ?? 'No Size')),
+                    DataCell(Text(reservation['courseLabel'] ?? 'No Course')),
+                    DataCell(Text('₱${reservation['price'].toString()}')),
+                    DataCell(Text(
+                      DateFormat('yyyy-MM-dd HH:mm:ss').format((reservation['reservationDate'] as Timestamp).toDate()),
+                    )), // Format reservation date
                     DataCell(Text(reservation['userName'] ?? 'Unknown User')),
                     DataCell(
                       reservation['imagePath'] != null && reservation['imagePath'].isNotEmpty
@@ -201,11 +229,13 @@ class ReservationListPage extends StatelessWidget {
                           : Icon(Icons.shopping_cart),
                     ),
                     DataCell(
-                      ElevatedButton(
-                        onPressed: () {
-                          _approveReservation(reservation);
-                        },
-                        child: Text('Approve'),
+                      Center(
+                        child: ElevatedButton(
+                          onPressed: () {
+                            _approveReservation(reservation);
+                          },
+                          child: Text('Approve'),
+                        ),
                       ),
                     ),
                   ]);

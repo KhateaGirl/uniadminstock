@@ -113,10 +113,24 @@
             String label = data['label'] != null ? data['label'] as String : doc.id;
             double price = data['price'] != null ? data['price'] as double : 0.0;
 
+            // Logic to include sizes for each item
+            Map<String, dynamic> stockData = {};
+            if (data.containsKey('sizes') && data['sizes'] is Map) {
+              Map<String, dynamic> sizes = data['sizes'] as Map<String, dynamic>;
+              sizes.forEach((sizeKey, sizeValue) {
+                if (sizeValue is Map && sizeValue.containsKey('quantity')) {
+                  stockData[sizeKey] = {
+                    'quantity': sizeValue['quantity'],
+                  };
+                }
+              });
+            }
+
             courseItems[doc.id] = {
               'label': label,
               'imagePath': imagePath ?? '',
               'price': price,
+              'sizes': stockData,  // Add sizes to the data
             };
           });
 
@@ -143,10 +157,24 @@
 
         merchData.forEach((key, value) {
           if (value is Map<String, dynamic>) {
+            // Processing sizes
+            Map<String, dynamic> stockData = {};
+            if (value.containsKey('sizes') && value['sizes'] is Map) {
+              Map<String, dynamic> sizes = value['sizes'] as Map<String, dynamic>;
+              sizes.forEach((sizeKey, sizeValue) {
+                if (sizeValue is Map && sizeValue.containsKey('quantity')) {
+                  stockData[sizeKey] = {
+                    'quantity': sizeValue['quantity'],
+                  };
+                }
+              });
+            }
+
             processedMerchData[key] = {
               'label': key,
               'imagePath': value['imagePath'] ?? '',
               'price': value['price'] ?? 0.0,
+              'sizes': stockData,  // Include the sizes data
             };
           }
         });
@@ -329,7 +357,7 @@
               crossAxisCount: 3,
               crossAxisSpacing: 8,
               mainAxisSpacing: 8,
-              childAspectRatio: 2,
+              childAspectRatio: 1.5,
             ),
             itemCount: _seniorHighStockQuantities.keys.length,
             itemBuilder: (context, index) {
@@ -356,7 +384,7 @@
               crossAxisCount: 3,
               crossAxisSpacing: 8,
               mainAxisSpacing: 8,
-              childAspectRatio: 2,
+              childAspectRatio: 1.5,
             ),
             itemCount: _collegeStockQuantities[courseLabel]?.keys.length ?? 0,
             itemBuilder: (context, index) {
@@ -376,7 +404,7 @@
           crossAxisCount: 3,
           crossAxisSpacing: 8,
           mainAxisSpacing: 8,
-          childAspectRatio: 2,
+          childAspectRatio: 1.5,
         ),
         itemCount: _merchStockQuantities.keys.length,
         itemBuilder: (context, index) {
@@ -534,8 +562,15 @@
           if (quantity > 0 && size != null && size != 'None') {
             // Add category field based on the selected category
             String category;
+            String? courseLabel;
+
             if (_selectedCategory == 'Uniform') {
-              category = _selectedSchoolLevel == 'Senior High' ? 'senior_high_items' : 'college_items';
+              if (_selectedSchoolLevel == 'Senior High') {
+                category = 'senior_high_items';
+              } else {
+                category = 'college_items';
+                courseLabel = _selectedCourseLabel;  // Include course label for college items
+              }
             } else {
               category = 'Merch & Accessories';
             }
@@ -546,7 +581,8 @@
               'itemSize': size,
               'quantity': quantity,
               'status': 'pending',
-              'category': category,  // Add the category to the cart item
+              'category': category,
+              'courseLabel': courseLabel,  // Add courseLabel for college items
               'timestamp': FieldValue.serverTimestamp(),
             });
 
@@ -555,7 +591,8 @@
               'itemSize': size,
               'quantity': quantity,
               'cartItemRef': cartItemRef.id,
-              'category': category,  // Include the category in the cart items
+              'category': category,
+              'courseLabel': courseLabel,  // Include the course label in the cart items
             });
 
             // Deduct the quantity from Firestore
@@ -570,7 +607,7 @@
           'userName': studentName,
           'studentNumber': studentNumber,
           'cartItems': cartItems,
-          'category': _selectedCategory,  // Save the category in the transaction
+          'category': _selectedCategory,
           'timestamp': FieldValue.serverTimestamp(),
         });
 
@@ -677,8 +714,21 @@
 
       List<Map<String, dynamic>> sortedOrderSummary = cartItems.map((item) {
         String itemLabel = item['itemLabel'];
+        String? itemCategory = item['category'];
+        String? courseLabel = item['courseLabel'];  // Add courseLabel if applicable
         int quantity = item['quantity'];
-        double pricePerPiece = _seniorHighStockQuantities[itemLabel]?['price'] ?? 0.0;
+
+        // Retrieve the price depending on the category and the course label
+        double pricePerPiece = 0.0;
+
+        if (itemCategory == 'senior_high_items') {
+          pricePerPiece = _seniorHighStockQuantities[itemLabel]?['price'] ?? 0.0;
+        } else if (itemCategory == 'college_items' && courseLabel != null) {
+          pricePerPiece = _collegeStockQuantities[courseLabel]?[itemLabel]?['price'] ?? 0.0;
+        } else if (itemCategory == 'Merch & Accessories') {
+          pricePerPiece = _merchStockQuantities[itemLabel]?['price'] ?? 0.0;
+        }
+
         double totalPrice = pricePerPiece * quantity;
 
         return {
@@ -686,7 +736,8 @@
           'itemSize': item['itemSize'],
           'quantity': quantity,
           'pricePerPiece': pricePerPiece,
-          'totalPrice': totalPrice
+          'totalPrice': totalPrice,
+          'courseLabel': courseLabel,  // Include courseLabel in the order summary
         };
       }).toList();
 
