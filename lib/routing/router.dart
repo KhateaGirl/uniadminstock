@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:unistock/pages/AboutUs.dart';
 import 'package:unistock/pages/SettingsPage.dart';
 import 'package:unistock/pages/authentication/authentication.dart';
 import 'package:unistock/pages/inventory_stocks/inventory_stocks.dart';
@@ -9,6 +10,7 @@ import 'package:unistock/pages/sales_statistics/sales_statistics.dart';
 import 'package:unistock/pages/walk-in/walk-in.dart';
 import 'package:unistock/routing/routes.dart';
 
+// Route settings to generate routes
 Route<dynamic> generateRoute(RouteSettings settings) {
   switch (settings.name) {
     case OverviewPageRoute:
@@ -25,11 +27,14 @@ Route<dynamic> generateRoute(RouteSettings settings) {
       return _getPageRoute(WalkinPage());
     case SettingsPageRoute:
       return _getPageRoute(SettingsPage());
+    case AboutUsPageRoute: // Added this case for AboutUsPage
+      return _getPageRoute(AboutUsPage()); // Use AboutUsPage here
     default:
       return _getPageRoute(AuthenticationPage());
   }
 }
 
+// Helper function to create a MaterialPageRoute
 PageRoute _getPageRoute(Widget child) {
   return MaterialPageRoute(builder: (context) => child);
 }
