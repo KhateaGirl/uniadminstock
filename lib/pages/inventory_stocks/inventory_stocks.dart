@@ -171,24 +171,42 @@ class _InventoryPageState extends State<InventoryPage> {
             .doc(itemKey);
       }
 
+      // Fetch current item data
       DocumentSnapshot documentSnapshot = await itemRef.get();
       Map<String, dynamic>? currentItemData = documentSnapshot.data() as Map<String, dynamic>?;
 
+      // Check and fetch the sizes data
       Map<String, dynamic> sizesData = currentItemData != null && currentItemData['sizes'] is Map<String, dynamic>
           ? currentItemData['sizes'] as Map<String, dynamic> : {};
 
+      // Check if size already exists and its quantity
       Map<String, dynamic> sizeData = sizesData[customSize] ?? {'quantity': 0};
-      sizeData['quantity'] = (sizeData['quantity'] ?? 0) + quantity;
+      int currentQuantity = sizeData['quantity'] ?? 0;
+
+      // Limit quantity to prevent exceeding total availability
+      int newQuantity = currentQuantity + quantity;
+      if (newQuantity > 5) { // Assuming 5 is the maximum allowed quantity as per your screenshots
+        // Show an error message to the user if they are trying to add more than available stock
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Cannot add more than available stock (5 items)')),
+        );
+        return;
+      }
+
+      // Update size quantity
+      sizeData['quantity'] = newQuantity;
       sizesData[customSize] = sizeData;
 
+      // Prepare update data
       Map<String, dynamic> updateData = {'sizes': sizesData};
-
       if (price != null) {
         updateData['price'] = price;
       }
 
+      // Update FirestoreF  F
       await itemRef.update(updateData);
 
+      // Update local state
       setState(() {
         if (collectionType == 'senior_high_items') {
           _seniorHighStockQuantities[itemKey]?['sizes'] = sizesData;
@@ -207,7 +225,11 @@ class _InventoryPageState extends State<InventoryPage> {
           }
         }
       });
+
     } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error: $e')),
+      );
     }
   }
 

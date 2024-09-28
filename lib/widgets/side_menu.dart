@@ -17,8 +17,9 @@ class SideMenu extends StatelessWidget {
 
     return Container(
       color: light,
-      child: ListView(
+      child: Column(
         children: [
+          // If the screen is small, show the header UNISTOCK
           if (ResponsiveWidget.isSmallScreen(context))
             Column(
               mainAxisSize: MainAxisSize.min,
@@ -27,38 +28,52 @@ class SideMenu extends StatelessWidget {
                 Row(
                   children: [
                     SizedBox(width: _width / 48),
-                    Padding(padding: EdgeInsets.only(right: 12),
+                    Padding(
+                      padding: EdgeInsets.only(right: 12),
                     ),
-                    Flexible(child: CustomText(
-                      text: "UNISTOCK",
-                      size: 20,
-                      weight: FontWeight.bold,
-                      color: active,
-                    )),
-                    SizedBox(width: _width / 48)
+                    Flexible(
+                      child: CustomText(
+                        text: "UNISTOCK",
+                        size: 20,
+                        weight: FontWeight.bold,
+                        color: active,
+                      ),
+                    ),
+                    SizedBox(width: _width / 48),
                   ],
                 ),
               ],
             ),
-          Divider(color: lightGrey.withOpacity(.1),),
-          Column(
-            mainAxisSize: MainAxisSize.min,
-            children: sideMenuItems.map((itemName) => SideMenuItem(
-              itemName: itemName == AuthenticationPageRoute ? "Log Out" : itemName,
-              onTap: (){
-                if(itemName == AuthenticationPageRoute){
-                  Get.offAll(LoginPage());
-                }
-
-                if(!menuController.isActive(itemName)){
-                  menuController.changeActiveitemTo(itemName);
-                  if(ResponsiveWidget.isSmallScreen(context))
-                  Get.back();
-                  navigationController.navigateTo(itemName);
-                }
+          Divider(color: lightGrey.withOpacity(.1)),
+          // Expanded to take up available space
+          Expanded(
+            child: ListView(
+              children: sideMenuItems
+                  .where((itemName) => itemName != AuthenticationPageRoute) // Remove "Log Out" from the main list
+                  .map((itemName) {
+                return SideMenuItem(
+                  itemName: itemName,
+                  onTap: () {
+                    if (!menuController.isActive(itemName)) {
+                      menuController.changeActiveitemTo(itemName);
+                      if (ResponsiveWidget.isSmallScreen(context)) Get.back();
+                      navigationController.navigateTo(itemName);
+                    }
+                  },
+                );
+              }).toList(),
+            ),
+          ),
+          // Log Out button at the bottom
+          Padding(
+            padding: const EdgeInsets.only(bottom: 20.0), // Adjust padding if needed
+            child: SideMenuItem(
+              itemName: "Log Out",
+              onTap: () {
+                Get.offAll(LoginPage());
               },
-            )).toList(),
-          )
+            ),
+          ),
         ],
       ),
     );

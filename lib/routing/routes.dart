@@ -4,8 +4,10 @@ const ReservationListPageRoute = "Reservation List";
 const SalesHistoryPageRoute = "Sales History";
 const SalesStatisticsPageRoute = "Sales Statistics";
 const WalkinPageRoute = "Walk-In";
+const AboutUsPageRoute = "About Us";
 const AuthenticationPageRoute = "Authentication";
 const SettingsPageRoute = "Settings";
+
 
 List sideMenuItems = [
   OverviewPageRoute,
@@ -14,5 +16,6 @@ List sideMenuItems = [
   SalesHistoryPageRoute,
   SalesStatisticsPageRoute,
   WalkinPageRoute,
+  AboutUsPageRoute, // Add the new route here
   AuthenticationPageRoute
 ];

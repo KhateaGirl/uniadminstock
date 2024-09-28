@@ -9,41 +9,48 @@ class ReservationListPage extends StatelessWidget {
   Future<List<Map<String, dynamic>>> _fetchAllPendingReservations() async {
     List<Map<String, dynamic>> allPendingReservations = [];
 
+    // Fetch all users
     QuerySnapshot usersSnapshot = await _firestore.collection('users').get();
 
     for (var userDoc in usersSnapshot.docs) {
       String userName = userDoc['name'] ?? 'Unknown User';
       print("Processing user: $userName (${userDoc.id})");
 
-      // Fetch pending reservations from the user's cart
-      QuerySnapshot cartSnapshot = await _firestore
+      // Fetch orders from the user's "orders" subcollection
+      QuerySnapshot ordersSnapshot = await _firestore
           .collection('users')
           .doc(userDoc.id)
-          .collection('cart')
-          .where('status', isEqualTo: 'pending')
+          .collection('orders')
           .get();
 
-      for (var cartDoc in cartSnapshot.docs) {
-        Map<String, dynamic> reservationData = cartDoc.data() as Map<String, dynamic>;
-        String itemLabel = reservationData['itemLabel'] ?? 'Unknown';  // Ensure it won't be null
-        String itemSize = reservationData['itemSize'] ?? 'No Size';    // Default value for item size
-        String category = reservationData['category'] ?? 'Unknown';    // Ensure it won't be null
-        String courseLabel = reservationData['courseLabel'] ?? 'No Course'; // Default value for courseLabel
-        Timestamp reservationDate = reservationData['timestamp'] ?? Timestamp.now(); // Ensure timestamp is present
+      for (var orderDoc in ordersSnapshot.docs) {
+        Map<String, dynamic> reservationData = orderDoc.data() as Map<
+            String,
+            dynamic>;
 
-        // Fetch the price directly from the reservation data
+        // Extract fields from the order document
+        String itemLabel = reservationData['itemLabel'] ?? 'Unknown';
+        String itemSize = reservationData['itemSize'] ?? 'No Size';
+        String category = reservationData['category'] ?? 'Unknown';
+        String courseLabel = reservationData['courseLabel'] ?? 'No Course';
+        Timestamp reservationDate = reservationData['orderDate'] ??
+            Timestamp.now();
         double price = (reservationData['price'] as num?)?.toDouble() ?? 0.0;
+        String imagePath = reservationData['imagePath'] ?? '';
 
-        print("Item details - itemLabel: $itemLabel, itemSize: $itemSize, category: $category, price: $price");
+        print(
+            "Item details - itemLabel: $itemLabel, itemSize: $itemSize, category: $category, price: $price");
 
-        // Add the price and additional fields to the reservation data
+        // Add fields to reservation data
         reservationData['price'] = price;
         reservationData['userName'] = userName;
         reservationData['userId'] = userDoc.id;
-        reservationData['cartId'] = cartDoc.id;
+        reservationData['orderId'] =
+            orderDoc.id; // Renamed from 'cartId' to 'orderId'
         reservationData['courseLabel'] = courseLabel;
         reservationData['itemSize'] = itemSize;
         reservationData['reservationDate'] = reservationDate;
+        reservationData['imagePath'] = imagePath;
 
         allPendingReservations.add(reservationData);
       }
@@ -54,23 +61,22 @@ class ReservationListPage extends StatelessWidget {
 
   Future<void> _approveReservation(Map<String, dynamic> reservation) async {
     try {
-      // Fetch the user's cart document
-      DocumentSnapshot cartDoc = await _firestore
+      // Fetch the user's order document
+      DocumentSnapshot orderDoc = await _firestore
           .collection('users')
           .doc(reservation['userId'])
-          .collection('cart')
-          .doc(reservation['cartId'])
+          .collection('orders')
+          .doc(reservation['orderId'])
           .get();
 
-      Timestamp reservationDate = cartDoc['timestamp'];
+      Timestamp reservationDate = orderDoc['orderDate'];
 
-      // Determine the category based on the subcategory value
       String mainCategory = reservation['category'];
-      if (mainCategory == 'college_items' || mainCategory == 'senior_high_items') {
+      if (mainCategory == 'college_items' ||
+          mainCategory == 'senior_high_items') {
         mainCategory = 'Uniform';
       }
 
-      // Fetch the userId and studentId that matches the userName
       String userName = reservation['userName'];
 
       // Query the users collection to find the matching user document by name
@@ -97,8 +103,8 @@ class ReservationListPage extends StatelessWidget {
       await _firestore
           .collection('users')
           .doc(reservation['userId'])
-          .collection('cart')
-          .doc(reservation['cartId'])
+          .collection('orders')
+          .doc(reservation['orderId'])
           .update({'status': 'approved'});
 
       // Add to approved_items collection
@@ -109,19 +115,19 @@ class ReservationListPage extends StatelessWidget {
         'itemSize': reservation['itemSize'],
         'quantity': reservation['quantity'],
         'name': reservation['userName'],
-        'pricePerPiece': reservation['price'], // Add price to approved items
+        'pricePerPiece': reservation['price'],
       });
 
       // Store the approved reservation in the admin_transactions collection
       await _firestore.collection('admin_transactions').add({
-        'cartItemRef': reservation['cartId'],
+        'cartItemRef': reservation['orderId'],
         'category': mainCategory,
         'courseLabel': reservation['courseLabel'],
         'itemLabel': reservation['itemLabel'],
         'itemSize': reservation['itemSize'],
         'quantity': reservation['quantity'],
-        'studentNumber': studentId, // Corrected to use 'studentId'
-        'timestamp': FieldValue.serverTimestamp(), // Approval timestamp
+        'studentNumber': studentId,
+        'timestamp': FieldValue.serverTimestamp(),
         'userId': userId,
         'userName': userName,
       });
@@ -136,7 +142,8 @@ class ReservationListPage extends StatelessWidget {
   }
 
   // Notification function to notify the user
-  Future<void> _sendNotificationToUser(String userId, String userName, Map<String, dynamic> reservation) async {
+  Future<void> _sendNotificationToUser(String userId, String userName,
+      Map<String, dynamic> reservation) async {
     String notificationMessage = 'Your reservation for ${reservation['itemLabel']} (${reservation['itemSize']}) has been approved.';
 
     Map<String, dynamic> notificationData = {
@@ -144,7 +151,7 @@ class ReservationListPage extends StatelessWidget {
       'itemSize': reservation['itemSize'],
       'quantity': reservation['quantity'],
       'pricePerPiece': reservation['price'],
-      'totalPrice': reservation['price'] * reservation['quantity'], // Calculate total price
+      'totalPrice': reservation['price'] * reservation['quantity'],
     };
 
     CollectionReference notificationsRef = FirebaseFirestore.instance
@@ -192,54 +199,78 @@ class ReservationListPage extends StatelessWidget {
             );
           } else if (snapshot.hasData) {
             final reservations = snapshot.data!;
+
             return SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: DataTable(
-                columnSpacing: 16.0, // Adjust column spacing to align better
-                columns: [
-                  DataColumn(label: Text('Item Label')),
-                  DataColumn(label: Text('Item Size')),
-                  DataColumn(label: Text('Course Label')),
-                  DataColumn(label: Text('Price')),
-                  DataColumn(label: Text('Reservation Date')),
-                  DataColumn(label: Text('User Name')),
-                  DataColumn(label: Text('Image')),
-                  DataColumn(label: Text('Action')),
-                ],
-                rows: reservations.map((reservation) {
-                  return DataRow(cells: [
-                    DataCell(Text(reservation['itemLabel'] ?? 'No label')),
-                    DataCell(Text(reservation['itemSize'] ?? 'No Size')),
-                    DataCell(Text(reservation['courseLabel'] ?? 'No Course')),
-                    DataCell(Text('₱${reservation['price'].toString()}')),
-                    DataCell(Text(
-                      DateFormat('yyyy-MM-dd HH:mm:ss').format((reservation['reservationDate'] as Timestamp).toDate()),
-                    )), // Format reservation date
-                    DataCell(Text(reservation['userName'] ?? 'Unknown User')),
-                    DataCell(
-                      reservation['imagePath'] != null && reservation['imagePath'].isNotEmpty
-                          ? Image.network(
-                        reservation['imagePath'],
-                        width: 50,
-                        height: 50,
-                        errorBuilder: (context, error, stackTrace) {
-                          return Icon(Icons.shopping_cart);
-                        },
-                      )
-                          : Icon(Icons.shopping_cart),
-                    ),
-                    DataCell(
-                      Center(
-                        child: ElevatedButton(
-                          onPressed: () {
-                            _approveReservation(reservation);
-                          },
-                          child: Text('Approve'),
-                        ),
+              child: Column(
+                children: [
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: ConstrainedBox(
+                      constraints: BoxConstraints(
+                        minWidth: MediaQuery
+                            .of(context)
+                            .size
+                            .width,
+                      ),
+                      child: DataTable(
+                        columnSpacing: 16.0,
+                        columns: [
+                          DataColumn(label: Text('Item Label')),
+                          DataColumn(label: Text('Item Size')),
+                          DataColumn(label: Text('Course Label')),
+                          DataColumn(label: Text('Price')),
+                          DataColumn(label: Text('Reservation Date')),
+                          DataColumn(label: Text('User Name')),
+                          DataColumn(label: Text('Image')),
+                          DataColumn(label: Text('Action')),
+                        ],
+                        rows: reservations.map((reservation) {
+                          return DataRow(cells: [
+                            DataCell(
+                                Text(reservation['itemLabel'] ?? 'No label')),
+                            DataCell(
+                                Text(reservation['itemSize'] ?? 'No Size')),
+                            DataCell(Text(
+                                reservation['courseLabel'] ?? 'No Course')),
+                            DataCell(
+                                Text('₱${reservation['price'].toString()}')),
+                            DataCell(Text(
+                              DateFormat('yyyy-MM-dd HH:mm:ss')
+                                  .format(
+                                  (reservation['reservationDate'] as Timestamp)
+                                      .toDate()),
+                            )),
+                            DataCell(Text(
+                                reservation['userName'] ?? 'Unknown User')),
+                            DataCell(
+                              reservation['imagePath'] != null &&
+                                  reservation['imagePath'].isNotEmpty
+                                  ? Image.network(
+                                reservation['imagePath'],
+                                width: 50,
+                                height: 50,
+                                errorBuilder: (context, error, stackTrace) {
+                                  return Icon(Icons.shopping_cart);
+                                },
+                              )
+                                  : Icon(Icons.shopping_cart),
+                            ),
+                            DataCell(
+                              Center(
+                                child: ElevatedButton(
+                                  onPressed: () {
+                                    _approveReservation(reservation);
+                                  },
+                                  child: Text('Approve'),
+                                ),
+                              ),
+                            ),
+                          ]);
+                        }).toList(),
                       ),
                     ),
-                  ]);
-                }).toList(),
+                  ),
+                ],
               ),
             );
           } else {
