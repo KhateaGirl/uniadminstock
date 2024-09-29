@@ -1,12 +1,12 @@
 import 'dart:io';
-import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
-import 'package:image_picker/image_picker.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_storage/firebase_storage.dart';
 import 'package:get/get.dart';
 import 'dart:typed_data';
 import 'package:unistock/main.dart';
+import 'package:image_picker/image_picker.dart';
 
 class SettingsPage extends StatefulWidget {
   @override
@@ -18,19 +18,20 @@ class _SettingsPageState extends State<SettingsPage> {
   TextEditingController _usernameController = TextEditingController();
   TextEditingController _passwordController = TextEditingController();
 
-  File? _imageFile;
+  bool _isLoading = false;
+  File? _selectedImageFile;
   Uint8List? _webImage;
   final picker = ImagePicker();
-  String? _imageUrl;
-  String? _selectedItem;
-  List<String> _items = [];
-  bool _isLoading = false;
+  double _uploadProgress = 0.0;
+  String _uploadStatus = "";
+
+  // Dropdown related
+  String? _selectedAnnouncement;
+  List<String> _announcementOptions = ["Announcement 1", "Announcement 2", "Announcement 3"];
 
   @override
   void initState() {
     super.initState();
-    _fetchExistingImage();
-    _fetchItems();
   }
 
   Future<void> updateAdminCredentials() async {
@@ -71,86 +72,44 @@ class _SettingsPageState extends State<SettingsPage> {
     });
   }
 
-  Future<void> _fetchExistingImage() async {
-    UserController userController = Get.find();
-    String documentId = userController.documentId.value;
-
-    DocumentSnapshot docSnapshot = await FirebaseFirestore.instance
-        .collection('admin')
-        .doc(documentId)
-        .get();
-
-    setState(() {
-      _imageUrl = docSnapshot['image_url'];
-    });
-  }
-
-  Future<void> _fetchItems() async {
-    setState(() {
-      _isLoading = true;
-    });
-
-    try {
-      // Query items from College_items collection
-      QuerySnapshot collegeItemsSnapshot = await FirebaseFirestore.instance
-          .collection('Inventory_stock')
-          .doc('College_items')
-          .collection('Items')
-          .get();
-
-      // Query items from Senior_high_items collection
-      QuerySnapshot seniorHighItemsSnapshot = await FirebaseFirestore.instance
-          .collection('Inventory_stock')
-          .doc('Senior_high_items')
-          .collection('Items')
-          .get();
-
-      // Merge both collections into a single list of items
-      List<String> fetchedItems = [
-        ...collegeItemsSnapshot.docs.map((doc) => doc.id).toList(),
-        ...seniorHighItemsSnapshot.docs.map((doc) => doc.id).toList(),
-      ];
-
-      // Ensure no duplicate items
-      List<String> uniqueItems = fetchedItems.toSet().toList(); // Removes duplicates
-
-      setState(() {
-        _items = uniqueItems;
-
-        // Reset _selectedItem if it's not in the new list
-        if (_selectedItem != null && !_items.contains(_selectedItem)) {
-          _selectedItem = null;
-        }
-      });
-    } catch (e) {
-      print("Error fetching items: $e");
-    } finally {
-      setState(() {
-        _isLoading = false;
-      });
-    }
-  }
-
   Future<void> _pickImage() async {
-    final pickedFile = await picker.pickImage(source: ImageSource.gallery);
+    final pickedFile = await picker.pickImage(
+      source: ImageSource.gallery,
+      imageQuality: 50, // Compress image quality to optimize storage
+    );
     if (pickedFile != null) {
       if (kIsWeb) {
-        Uint8List webImageBytes = await pickedFile.readAsBytes();
+        Uint8List webFileBytes = await pickedFile.readAsBytes();
         setState(() {
-          _webImage = webImageBytes;
+          _webImage = webFileBytes;
+          _uploadStatus = "Image selected.";
         });
       } else {
         setState(() {
-          _imageFile = File(pickedFile.path);
+          _selectedImageFile = File(pickedFile.path);
+          _uploadStatus = "Image selected.";
         });
       }
+    } else {
+      setState(() {
+        _uploadStatus = "No image selected.";
+      });
     }
   }
 
-  Future<void> _uploadAndSaveImage() async {
+  Future<void> _uploadImage() async {
     if (_isLoading) return; // Prevent multiple uploads
+    if (_selectedAnnouncement == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Please select an announcement label.")),
+      );
+      return;
+    }
+
     setState(() {
       _isLoading = true;
+      _uploadProgress = 0.0; // Reset progress indicator
+      _uploadStatus = "Uploading...";
     });
 
     UserController userController = Get.find();
@@ -161,17 +120,66 @@ class _SettingsPageState extends State<SettingsPage> {
       String imageUrl = await _uploadImageToStorage(documentId);
 
       if (imageUrl.isNotEmpty) {
-        // Save the image URL to Firestore for the selected item
-        await _saveImageToFirestore(imageUrl);
+        // Check if a document with the selected label exists
+        QuerySnapshot snapshot = await FirebaseFirestore.instance
+            .collection('admin')
+            .doc(documentId)
+            .collection('announcements')
+            .where('announcement_label', isEqualTo: _selectedAnnouncement)
+            .get();
+
+        if (snapshot.docs.isNotEmpty) {
+          // If exists, update the existing document
+          String existingDocId = snapshot.docs.first.id;
+          await FirebaseFirestore.instance
+              .collection('admin')
+              .doc(documentId)
+              .collection('announcements')
+              .doc(existingDocId)
+              .update({'image_url': imageUrl});
+
+          setState(() {
+            _uploadStatus = "Image updated successfully!";
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text("Image updated successfully!")),
+          );
+        } else {
+          // If it does not exist, create a new document
+          await FirebaseFirestore.instance
+              .collection('admin')
+              .doc(documentId)
+              .collection('announcements')
+              .add({
+            'image_url': imageUrl,
+            'announcement_label': _selectedAnnouncement,
+          });
+
+          setState(() {
+            _uploadStatus = "Image uploaded successfully!";
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text("Image uploaded successfully!")),
+          );
+        }
+
+        // Refresh the UI after successful upload
+        _refreshUIAfterUpload();
       } else {
+        setState(() {
+          _uploadStatus = "Failed to upload image.";
+        });
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Failed to upload image.')),
         );
       }
     } catch (e) {
-      print("Error uploading and saving image: $e");
+      print("Error uploading image: $e");
+      setState(() {
+        _uploadStatus = "Error uploading image: $e";
+      });
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Error uploading and saving image: $e")),
+        SnackBar(content: Text("Error uploading image: $e")),
       );
     } finally {
       setState(() {
@@ -185,20 +193,32 @@ class _SettingsPageState extends State<SettingsPage> {
       if (kIsWeb && _webImage != null) {
         Reference storageRef = FirebaseStorage.instance
             .ref()
-            .child('admin_images/$documentId');
+            .child('admin_images/Announcements/$documentId/${DateTime.now().millisecondsSinceEpoch}');
 
         UploadTask uploadTask = storageRef.putData(_webImage!);
-        TaskSnapshot taskSnapshot = await uploadTask;
+        uploadTask.snapshotEvents.listen((TaskSnapshot snapshot) {
+          setState(() {
+            _uploadProgress = snapshot.bytesTransferred / snapshot.totalBytes;
+            _uploadStatus = "Uploading... ${(_uploadProgress * 100).toStringAsFixed(2)}%";
+          });
+        });
 
+        TaskSnapshot taskSnapshot = await uploadTask;
         return await taskSnapshot.ref.getDownloadURL();
-      } else if (_imageFile != null) {
+      } else if (_selectedImageFile != null) {
         Reference storageRef = FirebaseStorage.instance
             .ref()
-            .child('admin_images/$documentId');
+            .child('admin_images/Announcements/$documentId/${DateTime.now().millisecondsSinceEpoch}');
 
-        UploadTask uploadTask = storageRef.putFile(_imageFile!);
+        UploadTask uploadTask = storageRef.putFile(_selectedImageFile!);
+        uploadTask.snapshotEvents.listen((TaskSnapshot snapshot) {
+          setState(() {
+            _uploadProgress = snapshot.bytesTransferred / snapshot.totalBytes;
+            _uploadStatus = "Uploading... ${(_uploadProgress * 100).toStringAsFixed(2)}%";
+          });
+        });
+
         TaskSnapshot taskSnapshot = await uploadTask;
-
         return await taskSnapshot.ref.getDownloadURL();
       } else {
         throw 'No image selected';
@@ -209,75 +229,15 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
-  Future<void> _saveImageToFirestore(String imageUrl) async {
-    if (_selectedItem != null) {
-      try {
-        // Determine the correct parent collection based on the selected item
-        String parentCollection;
-
-        // Assuming you know that some items belong to Senior_high_items, you need a way to differentiate
-        if (_selectedItem!.contains('BLOUSE WITH VEST') || _selectedItem!.contains('Senior')) {
-          // Check if the selected item should go into Senior_high_items
-          parentCollection = 'Senior_high_items';
-        } else {
-          // Default to College_items for other items
-          parentCollection = 'College_items';
-        }
-
-        // Save the image URL to the corresponding collection (either College_items or Senior_high_items)
-        await FirebaseFirestore.instance
-            .collection('Inventory_stock')
-            .doc(parentCollection)
-            .collection('Items')
-            .doc(_selectedItem)
-            .set({'image_url': imageUrl}, SetOptions(merge: true));
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Image applied to item successfully!")),
-        );
-      } catch (e) {
-        print("Error saving image to item: $e");
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Failed to save image to item: $e")),
-        );
-      }
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Please select an item first.")),
-      );
-    }
-  }
-
-  Widget _buildImageDisplay() {
-    if (kIsWeb) {
-      return _webImage != null
-          ? Image.memory(
-        _webImage!,
-        height: 150,
-        width: 150,
-        fit: BoxFit.cover,
-      )
-          : Container(
-        height: 150,
-        width: 150,
-        color: Colors.grey[300],
-        child: Center(child: Text('No image')),
-      );
-    } else {
-      return _imageFile != null
-          ? Image.file(
-        _imageFile!,
-        height: 150,
-        width: 150,
-        fit: BoxFit.cover,
-      )
-          : Container(
-        height: 150,
-        width: 150,
-        color: Colors.grey[300],
-        child: Center(child: Text('No image')),
-      );
-    }
+  void _refreshUIAfterUpload() {
+    // Reset the state of the form after successful upload
+    setState(() {
+      _selectedImageFile = null; // Clear the selected image file
+      _webImage = null; // Clear the web image
+      _selectedAnnouncement = null; // Reset the dropdown selection
+      _uploadStatus = ""; // Clear the upload status
+      _uploadProgress = 0.0; // Reset the upload progress
+    });
   }
 
   @override
@@ -292,65 +252,6 @@ class _SettingsPageState extends State<SettingsPage> {
         child: SingleChildScrollView(
           child: Column(
             children: <Widget>[
-              Text('Upload Image to Associate with an Item',
-                  style: TextStyle(fontWeight: FontWeight.bold)),
-              SizedBox(height: 10),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _buildImageDisplay(),
-                  SizedBox(width: 20),
-                  Expanded(
-                    child: _isLoading
-                        ? CircularProgressIndicator()
-                        : DropdownButtonFormField<String>(
-                      decoration: InputDecoration(labelText: 'Select Item'),
-                      value: _selectedItem,
-                      items: _items.map((item) {
-                        return DropdownMenuItem<String>(
-                          value: item,
-                          child: Text(item),
-                        );
-                      }).toList(),
-                      onChanged: (newValue) {
-                        setState(() {
-                          _selectedItem = newValue;
-                        });
-                      },
-                    ),
-                  ),
-                ],
-              ),
-              SizedBox(height: 20),
-
-              ElevatedButton.icon(
-                icon: Icon(Icons.photo_library),
-                label: Text('Select Image'),
-                onPressed: _pickImage,
-                style: ElevatedButton.styleFrom(
-                  padding: EdgeInsets.symmetric(vertical: 15, horizontal: 20),
-                  textStyle: TextStyle(fontSize: 16),
-                ),
-              ),
-              if (_imageFile != null || _webImage != null) ...[
-                SizedBox(height: 20),
-                _buildImageDisplay(),
-                SizedBox(height: 20),
-                ElevatedButton.icon(
-                  icon: Icon(Icons.cloud_upload),
-                  label: Text(_isLoading ? 'Uploading...' : 'Upload and Apply Image'),
-                  onPressed: _isLoading ? null : _uploadAndSaveImage,
-                  style: ElevatedButton.styleFrom(
-                    padding: EdgeInsets.symmetric(vertical: 15, horizontal: 20),
-                    textStyle: TextStyle(fontSize: 16),
-                  ),
-                ),
-              ],
-              SizedBox(height: 20),
-
-              Divider(thickness: 2),
-              SizedBox(height: 20),
-
               Text('Update Admin Credentials',
                   style: TextStyle(fontWeight: FontWeight.bold)),
               SizedBox(height: 10),
@@ -399,6 +300,75 @@ class _SettingsPageState extends State<SettingsPage> {
                       ),
                     ),
                   ],
+                ),
+              ),
+              SizedBox(height: 20),
+
+              Divider(thickness: 2),
+              SizedBox(height: 20),
+
+              Text('Upload Announcement Image',
+                  style: TextStyle(fontWeight: FontWeight.bold)),
+              SizedBox(height: 10),
+
+              // Dropdown to select announcement label
+              DropdownButtonFormField<String>(
+                decoration: InputDecoration(
+                  labelText: 'Select Announcement',
+                  border: OutlineInputBorder(),
+                ),
+                value: _selectedAnnouncement,
+                items: _announcementOptions.map((option) {
+                  return DropdownMenuItem(
+                    value: option,
+                    child: Text(option),
+                  );
+                }).toList(),
+                onChanged: (value) {
+                  setState(() {
+                    _selectedAnnouncement = value;
+                  });
+                },
+              ),
+              SizedBox(height: 20),
+
+              ElevatedButton.icon(
+                icon: Icon(Icons.attach_file),
+                label: Text('Select Image'),
+                onPressed: _pickImage,
+                style: ElevatedButton.styleFrom(
+                  padding: EdgeInsets.symmetric(vertical: 15, horizontal: 20),
+                  textStyle: TextStyle(fontSize: 16),
+                ),
+              ),
+              SizedBox(height: 20),
+
+              // Display image preview
+              if (_webImage != null) ...[
+                Image.memory(_webImage!, height: 150),
+                SizedBox(height: 10),
+              ] else if (_selectedImageFile != null) ...[
+                Image.file(_selectedImageFile!, height: 150),
+                SizedBox(height: 10),
+              ],
+
+              if (_uploadProgress > 0) ...[
+                Text(
+                  _uploadStatus,
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                ),
+                SizedBox(height: 10),
+                LinearProgressIndicator(value: _uploadProgress),
+                SizedBox(height: 20),
+              ],
+
+              ElevatedButton.icon(
+                icon: Icon(Icons.cloud_upload),
+                label: Text(_isLoading ? 'Uploading...' : 'Upload Image'),
+                onPressed: _isLoading ? null : _uploadImage,
+                style: ElevatedButton.styleFrom(
+                  padding: EdgeInsets.symmetric(vertical: 15, horizontal: 20),
+                  textStyle: TextStyle(fontSize: 16),
                 ),
               ),
             ],

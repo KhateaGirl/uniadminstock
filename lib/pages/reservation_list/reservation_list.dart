@@ -24,17 +24,14 @@ class ReservationListPage extends StatelessWidget {
           .get();
 
       for (var orderDoc in ordersSnapshot.docs) {
-        Map<String, dynamic> reservationData = orderDoc.data() as Map<
-            String,
-            dynamic>;
+        Map<String, dynamic> reservationData = orderDoc.data() as Map<String, dynamic>;
 
         // Extract fields from the order document
         String itemLabel = reservationData['itemLabel'] ?? 'Unknown';
         String itemSize = reservationData['itemSize'] ?? 'No Size';
         String category = reservationData['category'] ?? 'Unknown';
         String courseLabel = reservationData['courseLabel'] ?? 'No Course';
-        Timestamp reservationDate = reservationData['orderDate'] ??
-            Timestamp.now();
+        Timestamp reservationDate = reservationData['orderDate'] ?? Timestamp.now();
         double price = (reservationData['price'] as num?)?.toDouble() ?? 0.0;
         String imagePath = reservationData['imagePath'] ?? '';
 
@@ -45,8 +42,7 @@ class ReservationListPage extends StatelessWidget {
         reservationData['price'] = price;
         reservationData['userName'] = userName;
         reservationData['userId'] = userDoc.id;
-        reservationData['orderId'] =
-            orderDoc.id; // Renamed from 'cartId' to 'orderId'
+        reservationData['orderId'] = orderDoc.id; // Renamed from 'cartId' to 'orderId'
         reservationData['courseLabel'] = courseLabel;
         reservationData['itemSize'] = itemSize;
         reservationData['reservationDate'] = reservationDate;
@@ -55,6 +51,13 @@ class ReservationListPage extends StatelessWidget {
         allPendingReservations.add(reservationData);
       }
     }
+
+    // Sort reservations by reservationDate in descending order
+    allPendingReservations.sort((a, b) {
+      Timestamp aTimestamp = a['reservationDate'] as Timestamp;
+      Timestamp bTimestamp = b['reservationDate'] as Timestamp;
+      return bTimestamp.compareTo(aTimestamp); // Sort in descending order
+    });
 
     return allPendingReservations;
   }

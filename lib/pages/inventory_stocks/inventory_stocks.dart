@@ -152,80 +152,150 @@ class _InventoryPageState extends State<InventoryPage> {
       DocumentReference itemRef;
 
       if (collectionType == 'Merch & Accessories') {
+        // Handling Merch & Accessories
         itemRef = FirebaseFirestore.instance.collection('Inventory_stock').doc('Merch & Accessories');
+
+        // Fetch current document data
+        DocumentSnapshot documentSnapshot = await itemRef.get();
+        Map<String, dynamic>? currentItemData = documentSnapshot.data() as Map<String, dynamic>?;
+
+        if (currentItemData == null) {
+          throw 'Item not found';
+        }
+
+        // Extract the specific item from the 'Merch & Accessories' document
+        Map<String, dynamic> specificItemData = currentItemData[itemKey];
+        if (specificItemData == null) {
+          throw 'Specific item not found in Merch & Accessories';
+        }
+
+        // Check and fetch the sizes data
+        Map<String, dynamic> sizesData = specificItemData['sizes'] != null
+            ? specificItemData['sizes'] as Map<String, dynamic>
+            : {};
+
+        // Update the size quantity
+        int currentQuantity = sizesData[customSize] != null ? sizesData[customSize]['quantity'] ?? 0 : 0;
+        sizesData[customSize] = {
+          'quantity': currentQuantity + quantity,
+        };
+
+        // Prepare the updated item data with new sizes
+        specificItemData['sizes'] = sizesData;
+        if (price != null) {
+          specificItemData['price'] = price;
+        }
+
+        // Update the specific item in Firestore by modifying only the affected part
+        await itemRef.update({
+          '$itemKey': specificItemData,
+        });
+
+        // Update local state
+        setState(() {
+          _merchStockQuantities[itemKey]?['sizes'] = sizesData;
+          if (price != null) {
+            _merchStockQuantities[itemKey]?['price'] = price;
+          }
+        });
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Custom size added successfully!')),
+        );
+
       } else if (collectionType == 'senior_high_items') {
+        // Handling Senior High Items
         itemRef = FirebaseFirestore.instance
             .collection('Inventory_stock')
             .doc('senior_high_items')
             .collection('Items')
             .doc(itemKey);
-      } else {
-        String? courseLabel = _selectedCourseLabel;
-        if (courseLabel == null) {
-          throw 'Course label not selected';
+
+        // Fetch current item data
+        DocumentSnapshot documentSnapshot = await itemRef.get();
+        Map<String, dynamic>? currentItemData = documentSnapshot.data() as Map<String, dynamic>?;
+
+        // Check and fetch the sizes data
+        Map<String, dynamic> sizesData = currentItemData != null && currentItemData['sizes'] is Map<String, dynamic>
+            ? currentItemData['sizes'] as Map<String, dynamic>
+            : {};
+
+        // Update size quantity
+        int currentQuantity = sizesData[customSize] != null ? sizesData[customSize]['quantity'] ?? 0 : 0;
+        sizesData[customSize] = {
+          'quantity': currentQuantity + quantity,
+        };
+
+        // Prepare update data
+        Map<String, dynamic> updateData = {'sizes': sizesData};
+        if (price != null) {
+          updateData['price'] = price;
         }
-        itemRef = FirebaseFirestore.instance
-            .collection('Inventory_stock')
-            .doc('college_items')
-            .collection(courseLabel)
-            .doc(itemKey);
-      }
 
-      // Fetch current item data
-      DocumentSnapshot documentSnapshot = await itemRef.get();
-      Map<String, dynamic>? currentItemData = documentSnapshot.data() as Map<String, dynamic>?;
+        // Update Firestore
+        await itemRef.update(updateData);
 
-      // Check and fetch the sizes data
-      Map<String, dynamic> sizesData = currentItemData != null && currentItemData['sizes'] is Map<String, dynamic>
-          ? currentItemData['sizes'] as Map<String, dynamic> : {};
-
-      // Check if size already exists and its quantity
-      Map<String, dynamic> sizeData = sizesData[customSize] ?? {'quantity': 0};
-      int currentQuantity = sizeData['quantity'] ?? 0;
-
-      // Limit quantity to prevent exceeding total availability
-      int newQuantity = currentQuantity + quantity;
-      if (newQuantity > 5) { // Assuming 5 is the maximum allowed quantity as per your screenshots
-        // Show an error message to the user if they are trying to add more than available stock
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Cannot add more than available stock (5 items)')),
-        );
-        return;
-      }
-
-      // Update size quantity
-      sizeData['quantity'] = newQuantity;
-      sizesData[customSize] = sizeData;
-
-      // Prepare update data
-      Map<String, dynamic> updateData = {'sizes': sizesData};
-      if (price != null) {
-        updateData['price'] = price;
-      }
-
-      // Update FirestoreF  F
-      await itemRef.update(updateData);
-
-      // Update local state
-      setState(() {
-        if (collectionType == 'senior_high_items') {
+        // Update local state
+        setState(() {
           _seniorHighStockQuantities[itemKey]?['sizes'] = sizesData;
           if (price != null) {
             _seniorHighStockQuantities[itemKey]?['price'] = price;
           }
-        } else if (collectionType == 'Merch & Accessories') {
-          _merchStockQuantities[itemKey]?['sizes'] = sizesData;
-          if (price != null) {
-            _merchStockQuantities[itemKey]?['price'] = price;
-          }
-        } else {
+        });
+
+      } else if (collectionType == 'college_items') {
+        // Handling College Items
+        if (_selectedCourseLabel == null) {
+          throw 'Course label not selected';
+        }
+
+        // Reference the item within the correct course sub-collection
+        itemRef = FirebaseFirestore.instance
+            .collection('Inventory_stock')
+            .doc('college_items')
+            .collection(_selectedCourseLabel!)
+            .doc(itemKey);
+
+        // Fetch current item data
+        DocumentSnapshot documentSnapshot = await itemRef.get();
+        Map<String, dynamic>? currentItemData = documentSnapshot.data() as Map<String, dynamic>?;
+
+        // Check and fetch the sizes data
+        Map<String, dynamic> sizesData = currentItemData != null && currentItemData['sizes'] is Map<String, dynamic>
+            ? currentItemData['sizes'] as Map<String, dynamic>
+            : {};
+
+        // Update size quantity
+        int currentQuantity = sizesData[customSize] != null ? sizesData[customSize]['quantity'] ?? 0 : 0;
+        sizesData[customSize] = {
+          'quantity': currentQuantity + quantity,
+        };
+
+        // Prepare update data
+        Map<String, dynamic> updateData = {'sizes': sizesData};
+        if (price != null) {
+          updateData['price'] = price;
+        }
+
+        // Update Firestore
+        await itemRef.update(updateData);
+
+        // Update local state
+        setState(() {
           _collegeStockQuantities[_selectedCourseLabel!]?[itemKey]?['sizes'] = sizesData;
           if (price != null) {
             _collegeStockQuantities[_selectedCourseLabel!]?[itemKey]?['price'] = price;
           }
-        }
-      });
+        });
 
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Custom size added successfully!')),
+        );
+
+      } else {
+        // Handle other collection types if necessary
+        throw 'Unsupported collection type';
+      }
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Error: $e')),
