@@ -533,26 +533,7 @@
       String studentNumber = _studentNumberController.text;
 
       try {
-        // Find the user document
-        QuerySnapshot userSnapshot = await FirebaseFirestore.instance
-            .collection('users')
-            .where('name', isEqualTo: studentName)
-            .where('studentId', isEqualTo: studentNumber)
-            .get();
-
-        if (userSnapshot.docs.isEmpty) {
-          Get.snackbar('Error', 'No matching user found with this name and student number');
-          return;
-        }
-
-        DocumentSnapshot userDoc = userSnapshot.docs.first;
-
-        // Add items to user's cart
-        CollectionReference cartRef = FirebaseFirestore.instance
-            .collection('users')
-            .doc(userDoc.id)
-            .collection('cart');
-
+        // Prepare list of items for the order
         List<Map<String, dynamic>> cartItems = [];
 
         for (String item in _selectedQuantities.keys) {
@@ -569,41 +550,43 @@
                 category = 'senior_high_items';
               } else {
                 category = 'college_items';
-                courseLabel = _selectedCourseLabel;  // Include course label for college items
+                courseLabel = _selectedCourseLabel; // Include course label for college items
               }
             } else {
               category = 'Merch & Accessories';
             }
 
-            // Add item to cart
-            DocumentReference cartItemRef = await cartRef.add({
+            // Prepare item data for admin_transactions and approved_items
+            Map<String, dynamic> itemData = {
               'itemLabel': item,
               'itemSize': size,
               'quantity': quantity,
-              'status': 'pending',
               'category': category,
-              'courseLabel': courseLabel,  // Add courseLabel for college items
-              'timestamp': FieldValue.serverTimestamp(),
-            });
+              'courseLabel': courseLabel, // Add courseLabel for college items
+            };
 
-            cartItems.add({
-              'itemLabel': item,
-              'itemSize': size,
-              'quantity': quantity,
-              'cartItemRef': cartItemRef.id,
-              'category': category,
-              'courseLabel': courseLabel,  // Include the course label in the cart items
-            });
+            cartItems.add(itemData);
 
             // Deduct the quantity from Firestore
             await _deductItemQuantity(item, size, quantity);
+
+            // Add item to approved_items (WalkIn)
+            CollectionReference approvedItemsRef = FirebaseFirestore.instance.collection('approved_items');
+            await approvedItemsRef.add({
+              'itemLabel': item,
+              'itemSize': size,
+              'name': studentName,
+              'pricePerPiece': _getItemPrice(category, item, courseLabel),
+              'quantity': quantity,
+              'reservationDate': FieldValue.serverTimestamp(),
+              'approvalDate': FieldValue.serverTimestamp(), // Assuming approval is immediate
+            });
           }
         }
 
-        // Create transaction record with category information
+        // Create transaction record in admin_transactions
         CollectionReference adminRef = FirebaseFirestore.instance.collection('admin_transactions');
         await adminRef.add({
-          'userId': userDoc.id,
           'userName': studentName,
           'studentNumber': studentNumber,
           'cartItems': cartItems,
@@ -611,15 +594,27 @@
           'timestamp': FieldValue.serverTimestamp(),
         });
 
-        await _sendNotificationToUser(userDoc.id, studentName, cartItems);
-
         Get.snackbar('Success', 'Order submitted successfully!');
 
-        // Call the refresh function after a successful order
-        _refreshData();  // Add this line to refresh inventory
+        // Refresh inventory data after a successful order
+        _refreshData();
 
       } catch (e) {
         Get.snackbar('Error', 'Failed to submit the order. Please try again.');
+        print('Error in _submitOrder: $e');
+      }
+    }
+
+// Helper function to get the item price based on category, courseLabel, and itemLabel
+    double _getItemPrice(String category, String itemLabel, String? courseLabel) {
+      if (category == 'senior_high_items') {
+        return _seniorHighStockQuantities[itemLabel]?['price'] ?? 0.0;
+      } else if (category == 'college_items' && courseLabel != null) {
+        return _collegeStockQuantities[courseLabel]?[itemLabel]?['price'] ?? 0.0;
+      } else if (category == 'Merch & Accessories') {
+        return _merchStockQuantities[itemLabel]?['price'] ?? 0.0;
+      } else {
+        return 0.0; // Default price
       }
     }
 
