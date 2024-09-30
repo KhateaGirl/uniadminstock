@@ -45,19 +45,22 @@ class SalesHistoryPage extends StatelessWidget {
             // List to hold all sales items from transactions
             List<Map<String, dynamic>> allSalesItems = [];
 
-            // Extracting each transaction's cart items
+            // Extracting each transaction's data
             transactions.forEach((transactionDoc) {
               var transactionData = transactionDoc.data() as Map<String, dynamic>;
-              List<dynamic> cartItems = transactionData['cartItems'] ?? [];
 
-              // Add additional transaction details to each cart item, and ensure type conversion
-              cartItems.forEach((item) {
-                Map<String, dynamic> saleItem = item as Map<String, dynamic>;
-                saleItem['userName'] = transactionData['userName'] ?? 'N/A';
-                saleItem['studentNumber'] = transactionData['studentNumber'] ?? 'N/A';
-                saleItem['timestamp'] = transactionData['timestamp'];
-                allSalesItems.add(saleItem);
-              });
+              // Directly add transaction details to allSalesItems
+              Map<String, dynamic> saleItem = {
+                'itemLabel': transactionData['itemLabel'] ?? 'N/A',
+                'itemSize': transactionData['itemSize'] ?? 'N/A',
+                'quantity': transactionData['quantity'] ?? 0,
+                'category': transactionData['category'] ?? 'N/A',
+                'userName': transactionData['userName'] ?? 'N/A',
+                'studentNumber': transactionData['studentNumber'] ?? 'N/A',
+                'timestamp': transactionData['timestamp'],
+              };
+
+              allSalesItems.add(saleItem);
             });
 
             // Build the sales history table
