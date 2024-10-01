@@ -15,7 +15,27 @@ class _InventoryPageState extends State<InventoryPage> {
 
   bool _loading = true;
   String? _selectedCourseLabel;
-  final List<String> _courseLabels = ['BACOMM', 'HRM & Culinary', 'IT&CPE', 'Tourism'];
+  String? _selectedSize;
+  final List<String> _courseLabels = [
+    'BACOMM',
+    'HRM & Culinary',
+    'IT&CPE',
+    'Tourism'
+  ];
+  final List<String> _availableSizes = [
+    'Small',
+    'Medium',
+    'Large',
+    'XL',
+    '2XL',
+    '3XL',
+    '4XL',
+    '5XL',
+    '6XL',
+    '7XL'
+  ];
+  final TextEditingController _priceController = TextEditingController();
+  final TextEditingController _quantityController = TextEditingController();
 
   @override
   void initState() {
@@ -29,7 +49,7 @@ class _InventoryPageState extends State<InventoryPage> {
         _loading = true;
       });
 
-      await Future.wait([
+      await Future.wait(<Future>[
         _fetchSeniorHighStock(),
         _fetchCollegeStock(),
         _fetchMerchStock(),
@@ -66,6 +86,7 @@ class _InventoryPageState extends State<InventoryPage> {
             if (sizeValue is Map && sizeValue.containsKey('quantity')) {
               stockData[sizeKey] = {
                 'quantity': sizeValue['quantity'],
+                'price': sizeValue['price'] ?? 0.0,
               };
             }
           });
@@ -82,8 +103,7 @@ class _InventoryPageState extends State<InventoryPage> {
       setState(() {
         _seniorHighStockQuantities = seniorHighData;
       });
-    } catch (e) {
-    }
+    } catch (e) {}
   }
 
   Future<void> _fetchCollegeStock() async {
@@ -100,13 +120,26 @@ class _InventoryPageState extends State<InventoryPage> {
         courseSnapshot.docs.forEach((doc) {
           Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
           String? imagePath = data['imagePath'] as String?;
-          String label = data['label'] != null ? data['label'] as String : doc.id;
-          double price = data['price'] != null ? data['price'] as double : 0.0;
+          String label = data['label'] != null ? data['label'] as String : doc
+              .id;
+
+          Map<String, dynamic> stockData = {};
+          if (data.containsKey('sizes') && data['sizes'] is Map) {
+            Map<String, dynamic> sizes = data['sizes'] as Map<String, dynamic>;
+            sizes.forEach((sizeKey, sizeValue) {
+              if (sizeValue is Map && sizeValue.containsKey('quantity')) {
+                stockData[sizeKey] = {
+                  'quantity': sizeValue['quantity'],
+                  'price': sizeValue['price'] ?? 0.0,
+                };
+              }
+            });
+          }
 
           courseItems[doc.id] = {
             'label': label,
             'imagePath': imagePath ?? '',
-            'price': price,
+            'stock': stockData,
           };
         });
 
@@ -116,8 +149,7 @@ class _InventoryPageState extends State<InventoryPage> {
       setState(() {
         _collegeStockQuantities = collegeData;
       });
-    } catch (e) {
-    }
+    } catch (e) {}
   }
 
   Future<void> _fetchMerchStock() async {
@@ -127,15 +159,30 @@ class _InventoryPageState extends State<InventoryPage> {
           .doc('Merch & Accessories')
           .get();
 
-      Map<String, dynamic> merchData = merchSnapshot.data() as Map<String, dynamic>;
+      Map<String, dynamic> merchData = merchSnapshot.data() as Map<
+          String,
+          dynamic>;
       Map<String, Map<String, dynamic>> processedMerchData = {};
 
       merchData.forEach((key, value) {
         if (value is Map<String, dynamic>) {
+          Map<String, dynamic> stockData = {};
+          if (value.containsKey('sizes') && value['sizes'] is Map) {
+            Map<String, dynamic> sizes = value['sizes'] as Map<String, dynamic>;
+            sizes.forEach((sizeKey, sizeValue) {
+              if (sizeValue is Map && sizeValue.containsKey('quantity')) {
+                stockData[sizeKey] = {
+                  'quantity': sizeValue['quantity'],
+                  'price': sizeValue['price'] ?? 0.0,
+                };
+              }
+            });
+          }
+
           processedMerchData[key] = {
             'label': key,
             'imagePath': value['imagePath'] ?? '',
-            'price': value['price'] ?? 0.0,
+            'stock': stockData,
           };
         }
       });
@@ -143,259 +190,124 @@ class _InventoryPageState extends State<InventoryPage> {
       setState(() {
         _merchStockQuantities = processedMerchData;
       });
-    } catch (e) {
-    }
+    } catch (e) {}
   }
 
-  Future<void> _addCustomSize(String itemKey, String customSize, int quantity, double? price, String collectionType) async {
-    try {
-      DocumentReference itemRef;
-
-      if (collectionType == 'Merch & Accessories') {
-        // Handling Merch & Accessories
-        itemRef = FirebaseFirestore.instance.collection('Inventory_stock').doc('Merch & Accessories');
-
-        // Fetch current document data
-        DocumentSnapshot documentSnapshot = await itemRef.get();
-        Map<String, dynamic>? currentItemData = documentSnapshot.data() as Map<String, dynamic>?;
-
-        if (currentItemData == null) {
-          throw 'Item not found';
-        }
-
-        // Extract the specific item from the 'Merch & Accessories' document
-        Map<String, dynamic> specificItemData = currentItemData[itemKey];
-        if (specificItemData == null) {
-          throw 'Specific item not found in Merch & Accessories';
-        }
-
-        // Check and fetch the sizes data
-        Map<String, dynamic> sizesData = specificItemData['sizes'] != null
-            ? specificItemData['sizes'] as Map<String, dynamic>
-            : {};
-
-        // Update the size quantity
-        int currentQuantity = sizesData[customSize] != null ? sizesData[customSize]['quantity'] ?? 0 : 0;
-        sizesData[customSize] = {
-          'quantity': currentQuantity + quantity,
-        };
-
-        // Prepare the updated item data with new sizes
-        specificItemData['sizes'] = sizesData;
-        if (price != null) {
-          specificItemData['price'] = price;
-        }
-
-        // Update the specific item in Firestore by modifying only the affected part
-        await itemRef.update({
-          '$itemKey': specificItemData,
-        });
-
-        // Update local state
-        setState(() {
-          _merchStockQuantities[itemKey]?['sizes'] = sizesData;
-          if (price != null) {
-            _merchStockQuantities[itemKey]?['price'] = price;
-          }
-        });
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Custom size added successfully!')),
-        );
-
-      } else if (collectionType == 'senior_high_items') {
-        // Handling Senior High Items
-        itemRef = FirebaseFirestore.instance
-            .collection('Inventory_stock')
-            .doc('senior_high_items')
-            .collection('Items')
-            .doc(itemKey);
-
-        // Fetch current item data
-        DocumentSnapshot documentSnapshot = await itemRef.get();
-        Map<String, dynamic>? currentItemData = documentSnapshot.data() as Map<String, dynamic>?;
-
-        // Check and fetch the sizes data
-        Map<String, dynamic> sizesData = currentItemData != null && currentItemData['sizes'] is Map<String, dynamic>
-            ? currentItemData['sizes'] as Map<String, dynamic>
-            : {};
-
-        // Update size quantity
-        int currentQuantity = sizesData[customSize] != null ? sizesData[customSize]['quantity'] ?? 0 : 0;
-        sizesData[customSize] = {
-          'quantity': currentQuantity + quantity,
-        };
-
-        // Prepare update data
-        Map<String, dynamic> updateData = {'sizes': sizesData};
-        if (price != null) {
-          updateData['price'] = price;
-        }
-
-        // Update Firestore
-        await itemRef.update(updateData);
-
-        // Update local state
-        setState(() {
-          _seniorHighStockQuantities[itemKey]?['sizes'] = sizesData;
-          if (price != null) {
-            _seniorHighStockQuantities[itemKey]?['price'] = price;
-          }
-        });
-
-      } else if (collectionType == 'college_items') {
-        // Handling College Items
-        if (_selectedCourseLabel == null) {
-          throw 'Course label not selected';
-        }
-
-        // Reference the item within the correct course sub-collection
-        itemRef = FirebaseFirestore.instance
-            .collection('Inventory_stock')
-            .doc('college_items')
-            .collection(_selectedCourseLabel!)
-            .doc(itemKey);
-
-        // Fetch current item data
-        DocumentSnapshot documentSnapshot = await itemRef.get();
-        Map<String, dynamic>? currentItemData = documentSnapshot.data() as Map<String, dynamic>?;
-
-        // Check and fetch the sizes data
-        Map<String, dynamic> sizesData = currentItemData != null && currentItemData['sizes'] is Map<String, dynamic>
-            ? currentItemData['sizes'] as Map<String, dynamic>
-            : {};
-
-        // Update size quantity
-        int currentQuantity = sizesData[customSize] != null ? sizesData[customSize]['quantity'] ?? 0 : 0;
-        sizesData[customSize] = {
-          'quantity': currentQuantity + quantity,
-        };
-
-        // Prepare update data
-        Map<String, dynamic> updateData = {'sizes': sizesData};
-        if (price != null) {
-          updateData['price'] = price;
-        }
-
-        // Update Firestore
-        await itemRef.update(updateData);
-
-        // Update local state
-        setState(() {
-          _collegeStockQuantities[_selectedCourseLabel!]?[itemKey]?['sizes'] = sizesData;
-          if (price != null) {
-            _collegeStockQuantities[_selectedCourseLabel!]?[itemKey]?['price'] = price;
-          }
-        });
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Custom size added successfully!')),
-        );
-
-      } else {
-        // Handle other collection types if necessary
-        throw 'Unsupported collection type';
-      }
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: $e')),
-      );
-    }
-  }
-
-  void _showCustomSizeDialog(String itemKey, String collectionType) {
-    String customSize = 'Small';
-    int customQuantity = 1;
-    double? customPrice;
-    TextEditingController _priceController = TextEditingController();
+  void _showAddSizeDialog(String itemKey, Map<String, dynamic> itemData,
+      String collectionType) {
+    _selectedSize = null;
+    _priceController.clear();
+    _quantityController.clear();
 
     showDialog(
       context: context,
-      builder: (BuildContext context) {
-        return StatefulBuilder(
-          builder: (context, setState) {
-            return AlertDialog(
-              title: Text('Add Custom Size for $itemKey'),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  DropdownButton<String>(
-                    value: customSize,
-                    onChanged: (String? newValue) {
-                      setState(() {
-                        customSize = newValue!;
-                      });
-                    },
-                    items: ['Small', 'Medium', 'Large', 'XL', '2XL', '3XL', '4XL', '5XL', '6XL', '7XL']
-                        .map<DropdownMenuItem<String>>((String value) {
-                      return DropdownMenuItem<String>(
-                        value: value,
-                        child: Text(value),
-                      );
-                    }).toList(),
-                  ),
-                  SizedBox(height: 10),
-                  Row(
-                    children: [
-                      Text('Quantity:'),
-                      IconButton(
-                        icon: Icon(Icons.remove),
-                        onPressed: () {
-                          setState(() {
-                            if (customQuantity > 1) customQuantity--;
-                          });
-                        },
-                      ),
-                      Text('$customQuantity'),
-                      IconButton(
-                        icon: Icon(Icons.add),
-                        onPressed: () {
-                          setState(() {
-                            customQuantity++;
-                          });
-                        },
-                      ),
-                    ],
-                  ),
-                  TextFormField(
-                    controller: _priceController,
-                    keyboardType: TextInputType.number,
-                    decoration: InputDecoration(
-                      labelText: 'Price',
-                      hintText: 'Enter price (optional)',
-                    ),
-                    onChanged: (value) {
-                      customPrice = double.tryParse(value);
-                    },
-                  ),
-                ],
+      builder: (context) {
+        return AlertDialog(
+          title: Text('Add Size and Price'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              DropdownButtonFormField<String>(
+                value: _selectedSize,
+                items: _availableSizes.map((String size) {
+                  return DropdownMenuItem<String>(
+                    value: size,
+                    child: Text(size),
+                  );
+                }).toList(),
+                onChanged: (newValue) {
+                  setState(() {
+                    _selectedSize = newValue;
+                  });
+                },
+                decoration: InputDecoration(labelText: 'Size'),
               ),
-              actions: [
-                TextButton(
-                  onPressed: () {
-                    Navigator.of(context).pop();
-                  },
-                  child: Text('Cancel'),
-                ),
-                ElevatedButton(
-                  onPressed: () {
-                    _addCustomSize(itemKey, customSize, customQuantity, customPrice, collectionType);
-                    Navigator.of(context).pop();
-                  },
-                  child: Text('Add'),
-                ),
-              ],
-            );
-          },
+              TextField(
+                controller: _priceController,
+                decoration: InputDecoration(labelText: 'Price'),
+                keyboardType: TextInputType.numberWithOptions(decimal: true),
+              ),
+              TextField(
+                controller: _quantityController,
+                decoration: InputDecoration(labelText: 'Quantity'),
+                keyboardType: TextInputType.number,
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+              },
+              child: Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () {
+                if (_selectedSize != null) {
+                  _addCustomSize(itemKey, itemData, collectionType);
+                  Navigator.of(context).pop();
+                }
+              },
+              child: Text('Add'),
+            ),
+          ],
         );
       },
     );
   }
+
+  void _addCustomSize(String itemKey, Map<String, dynamic> itemData, String collectionType) {
+    String size = _selectedSize ?? '';
+    double? price = _priceController.text.isNotEmpty ? double.tryParse(_priceController.text) : null;
+    int? newQuantity = _quantityController.text.isNotEmpty ? int.tryParse(_quantityController.text) : null;
+
+    // Update quantity if size already exists
+    if (itemData['stock'].containsKey(size)) {
+      int currentQuantity = itemData['stock'][size]['quantity'];
+      int updatedQuantity = newQuantity != null ? currentQuantity + newQuantity : currentQuantity;
+      itemData['stock'][size] = {
+        'quantity': updatedQuantity,
+        'price': price ?? itemData['stock'][size]['price'], // Only update if a new price is provided
+      };
+    } else {
+      // Add new size if it does not exist
+      itemData['stock'][size] = {
+        'quantity': newQuantity ?? 0,
+        'price': price ?? 0.0,
+      };
+    }
+
+    // Determine the correct Firestore path based on collectionType
+    DocumentReference docRef;
+    if (collectionType == 'senior_high_items') {
+      docRef = firestore.collection('Inventory_stock').doc('senior_high_items').collection('Items').doc(itemKey);
+    } else if (collectionType == 'college_items') {
+      docRef = firestore.collection('Inventory_stock').doc('college_items').collection(_selectedCourseLabel!).doc(itemKey);
+    } else if (collectionType == 'Merch & Accessories') {
+      docRef = firestore.collection('Inventory_stock').doc('Merch & Accessories').collection('Items').doc(itemKey);
+    } else {
+      return;
+    }
+
+    // Update the 'sizes' field directly in the document
+    Map<String, dynamic> updateData = {
+      'sizes.$size.quantity': newQuantity != null ? FieldValue.increment(newQuantity) : FieldValue.increment(0),
+    };
+    if (price != null) {
+      updateData['sizes.$size.price'] = price;
+    }
+
+    docRef.update(updateData).then((_) {
+      setState(() {
+        _fetchInventoryData(); // Refresh data to update UI
+      });
+    });
+  }
+
   Widget _buildItemCard(String itemKey, Map<String, dynamic> itemData, String collectionType) {
     String? imagePath = itemData['imagePath'];
     String label = itemData['label'];
-    double price = itemData['price'];
-    Map<String, dynamic>? stock = itemData['sizes'];
+    Map<String, dynamic>? stock = itemData['stock'];
 
     return Container(
       padding: EdgeInsets.all(8),
@@ -434,89 +346,90 @@ class _InventoryPageState extends State<InventoryPage> {
             style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
           ),
           SizedBox(height: 8),
-          Text(
-            '₱$price',
-            style: TextStyle(fontWeight: FontWeight.bold, color: Colors.green),
-          ),
-          SizedBox(height: 8),
           if (stock != null && stock.isNotEmpty)
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: stock.keys.map((size) {
-                int currentQuantity = stock[size]['quantity'];
-                return Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text('$size: $currentQuantity available'),
-                    Row(
+            Expanded(
+              child: SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: stock.keys.map((size) {
+                    int currentQuantity = stock[size]['quantity'];
+                    double currentPrice = stock[size]['price'];
+
+                    return Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
+                        Expanded(
+                          child: Text(
+                              '$size: $currentQuantity available, ₱$currentPrice'),
+                        ),
                         IconButton(
                           icon: Icon(Icons.remove),
-                          onPressed: () {
-                            if (currentQuantity > 0) {
-                              _updateSizeQuantity(itemKey, size, currentQuantity - 1, collectionType);
-                            }
-                          },
+                          onPressed: currentQuantity > 0 ? () {
+                            _updateQuantity(itemKey, size, -1, collectionType);
+                          } : null,
                         ),
                         IconButton(
                           icon: Icon(Icons.add),
                           onPressed: () {
-                            _updateSizeQuantity(itemKey, size, currentQuantity + 1, collectionType);
+                            _updateQuantity(itemKey, size, 1, collectionType);
                           },
                         ),
                       ],
-                    ),
-                  ],
-                );
-              }).toList(),
+                    );
+                  }).toList(),
+                ),
+              ),
             )
           else
             Text('No sizes available'),
+          SizedBox(height: 8),
           ElevatedButton(
             onPressed: () {
-              _showCustomSizeDialog(itemKey, collectionType);
+              _showAddSizeDialog(itemKey, itemData, collectionType);
             },
-            child: Text('Add Custom Size'),
+            child: Text('Add Size'),
           ),
         ],
       ),
     );
   }
 
-  Future<void> _updateSizeQuantity(String itemKey, String size, int newQuantity, String collectionType) async {
-    try {
-      DocumentReference itemRef;
+  void _updateQuantity(String itemKey, String size, int change, String collectionType) {
+    DocumentReference docRef;
+    if (collectionType == 'senior_high_items') {
+      docRef = firestore.collection('Inventory_stock').doc('senior_high_items').collection('Items').doc(itemKey);
+    } else if (collectionType == 'college_items') {
+      docRef = firestore.collection('Inventory_stock').doc('college_items').collection(_selectedCourseLabel!).doc(itemKey);
+    } else if (collectionType == 'Merch & Accessories') {
+      docRef = firestore.collection('Inventory_stock').doc('Merch & Accessories').collection('Items').doc(itemKey);
+    } else {
+      return;
+    }
 
-      if (collectionType == 'Merch & Accessories') {
-        itemRef = firestore.collection('Inventory_stock').doc('Merch & Accessories');
-      } else if (collectionType == 'senior_high_items') {
-        itemRef = firestore.collection('Inventory_stock').doc('senior_high_items').collection('Items').doc(itemKey);
-      } else {
-        String? courseLabel = _selectedCourseLabel;
-        if (courseLabel == null) {
-          throw 'Course label not selected';
-        }
-        itemRef = firestore.collection('Inventory_stock')
-            .doc('college_items')
-            .collection(courseLabel)
-            .doc(itemKey);
+    setState(() {
+      Map<String, dynamic>? targetData;
+      if (collectionType == 'senior_high_items') {
+        targetData = _seniorHighStockQuantities[itemKey];
+      } else if (collectionType == 'college_items') {
+        targetData = _collegeStockQuantities[_selectedCourseLabel!]![itemKey];
+      } else if (collectionType == 'Merch & Accessories') {
+        targetData = _merchStockQuantities[itemKey];
       }
 
-      await itemRef.update({
-        'sizes.$size.quantity': newQuantity,
-      });
+      if (targetData != null && targetData['stock'].containsKey(size)) {
+        int currentQuantity = targetData['stock'][size]['quantity'];
+        int newQuantity = currentQuantity + change;
 
-      setState(() {
-        if (collectionType == 'senior_high_items') {
-          _seniorHighStockQuantities[itemKey]?['sizes']?[size]['quantity'] = newQuantity;
-        } else if (collectionType == 'Merch & Accessories') {
-          _merchStockQuantities[itemKey]?['sizes']?[size]['quantity'] = newQuantity;
-        } else {
-          _collegeStockQuantities[_selectedCourseLabel!]?[itemKey]?['sizes']?[size]['quantity'] = newQuantity;
+        if (newQuantity >= 0) {
+          targetData['stock'][size]['quantity'] = newQuantity;
+
+          // Update Firestore with new quantity
+          docRef.update({
+            'sizes.$size.quantity': FieldValue.increment(change),
+          });
         }
-      });
-    } catch (e) {
-    }
+      }
+    });
   }
 
   @override
@@ -528,18 +441,18 @@ class _InventoryPageState extends State<InventoryPage> {
           IconButton(
             icon: Icon(Icons.refresh),
             onPressed: () {
-              _fetchInventoryData(); // Manually refresh the data
+              _fetchInventoryData();
             },
           ),
         ],
       ),
-      // Show loading spinner while data is being fetched
       body: _loading
           ? Center(child: CircularProgressIndicator())
           : Padding(
         padding: const EdgeInsets.all(16.0),
         child: ListView(
           children: [
+            // Senior High Inventory
             Text(
               'Senior High Inventory',
               style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
@@ -554,20 +467,23 @@ class _InventoryPageState extends State<InventoryPage> {
               mainAxisSpacing: 8,
               childAspectRatio: 0.8,
               children: _seniorHighStockQuantities.keys.map((itemKey) {
-                Map<String, dynamic> itemData = _seniorHighStockQuantities[itemKey]!;
+                Map<String,
+                    dynamic> itemData = _seniorHighStockQuantities[itemKey]!;
                 return _buildItemCard(itemKey, itemData, 'senior_high_items');
               }).toList(),
             ),
             SizedBox(height: 16),
+
+            // College Inventory
             Text(
               'College Inventory',
               style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
             ),
             DropdownButton<String>(
-              hint: Text('Select Course Label'),
               value: _selectedCourseLabel,
-              items: _courseLabels.map((label) {
-                return DropdownMenuItem(
+              hint: Text('Select Course Label'),
+              items: _courseLabels.map((String label) {
+                return DropdownMenuItem<String>(
                   value: label,
                   child: Text(label),
                 );
@@ -578,28 +494,33 @@ class _InventoryPageState extends State<InventoryPage> {
                 });
               },
             ),
+            _selectedCourseLabel != null &&
+                _collegeStockQuantities[_selectedCourseLabel!] != null
+                ? GridView.count(
+              crossAxisCount: 3,
+              shrinkWrap: true,
+              physics: NeverScrollableScrollPhysics(),
+              crossAxisSpacing: 8,
+              mainAxisSpacing: 8,
+              childAspectRatio: 0.8,
+              children: _collegeStockQuantities[_selectedCourseLabel!]!.keys
+                  .map((itemKey) {
+                Map<String,
+                    dynamic> itemData = _collegeStockQuantities[_selectedCourseLabel!]![itemKey]!;
+                return _buildItemCard(itemKey, itemData, 'college_items');
+              }).toList(),
+            )
+                : Center(child: Text('Select a course to view inventory')),
             SizedBox(height: 16),
-            if (_selectedCourseLabel != null &&
-                _collegeStockQuantities[_selectedCourseLabel!] != null)
-              GridView.count(
-                crossAxisCount: 3,
-                shrinkWrap: true,
-                physics: NeverScrollableScrollPhysics(),
-                crossAxisSpacing: 8,
-                mainAxisSpacing: 8,
-                childAspectRatio: 0.8,
-                children: _collegeStockQuantities[_selectedCourseLabel!]!.keys
-                    .map((itemKey) {
-                  Map<String, dynamic> itemData = _collegeStockQuantities[_selectedCourseLabel!]![itemKey];
-                  return _buildItemCard(itemKey, itemData, 'college_items');
-                }).toList(),
-              ),
-            SizedBox(height: 16),
+
+            // Merch & Accessories Inventory
             Text(
-              'Merch & Accessories',
+              'Merch & Accessories Inventory',
               style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
             ),
-            GridView.count(
+            _merchStockQuantities.isEmpty
+                ? Center(child: Text('No items available'))
+                : GridView.count(
               crossAxisCount: 3,
               shrinkWrap: true,
               physics: NeverScrollableScrollPhysics(),
