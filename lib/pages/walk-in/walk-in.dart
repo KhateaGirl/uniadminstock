@@ -65,26 +65,33 @@
         Map<String, Map<String, dynamic>> seniorHighData = {};
         seniorHighSnapshot.docs.forEach((doc) {
           Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
-          Map<String, dynamic> stockData = {};
           String? imagePath = data['imagePath'] as String?;
           String label = data['label'] != null ? data['label'] as String : doc.id;
 
+          // Default item price if no specific price for sizes
+          double defaultPrice = data['price'] != null ? data['price'] as double : 0.0;
+
+          Map<String, dynamic> stockData = {};
           if (data.containsKey('sizes') && data['sizes'] is Map) {
             Map<String, dynamic> sizes = data['sizes'] as Map<String, dynamic>;
             sizes.forEach((sizeKey, sizeValue) {
-              if (sizeValue is Map && sizeValue.containsKey('quantity')) {
+              if (sizeValue is Map) {
+                int quantity = sizeValue['quantity'] ?? 0;
+                double sizePrice = sizeValue['price'] ?? defaultPrice;
+
                 stockData[sizeKey] = {
-                  'quantity': sizeValue['quantity'],
+                  'quantity': quantity,
+                  'price': sizePrice,
                 };
               }
             });
           }
 
           seniorHighData[doc.id] = {
-            'sizes': stockData,
-            'imagePath': imagePath ?? '',
             'label': label,
-            'price': data['price'] ?? 0.0,
+            'imagePath': imagePath ?? '',
+            'defaultPrice': defaultPrice,
+            'sizes': stockData,
           };
         });
 
@@ -111,16 +118,21 @@
             Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
             String? imagePath = data['imagePath'] as String?;
             String label = data['label'] != null ? data['label'] as String : doc.id;
-            double price = data['price'] != null ? data['price'] as double : 0.0;
 
-            // Logic to include sizes for each item
+            // Default item price if no specific price for sizes
+            double defaultPrice = data['price'] != null ? data['price'] as double : 0.0;
+
             Map<String, dynamic> stockData = {};
             if (data.containsKey('sizes') && data['sizes'] is Map) {
               Map<String, dynamic> sizes = data['sizes'] as Map<String, dynamic>;
               sizes.forEach((sizeKey, sizeValue) {
-                if (sizeValue is Map && sizeValue.containsKey('quantity')) {
+                if (sizeValue is Map) {
+                  int quantity = sizeValue['quantity'] ?? 0;
+                  double sizePrice = sizeValue['price'] ?? defaultPrice;
+
                   stockData[sizeKey] = {
-                    'quantity': sizeValue['quantity'],
+                    'quantity': quantity,
+                    'price': sizePrice,
                   };
                 }
               });
@@ -129,8 +141,8 @@
             courseItems[doc.id] = {
               'label': label,
               'imagePath': imagePath ?? '',
-              'price': price,
-              'sizes': stockData,  // Add sizes to the data
+              'defaultPrice': defaultPrice,
+              'sizes': stockData,
             };
           });
 
@@ -157,14 +169,22 @@
 
         merchData.forEach((key, value) {
           if (value is Map<String, dynamic>) {
-            // Processing sizes
+            String? imagePath = value['imagePath'] as String?;
+
+            // Default item price if no specific price for sizes
+            double defaultPrice = value['price'] != null ? value['price'] as double : 0.0;
+
             Map<String, dynamic> stockData = {};
             if (value.containsKey('sizes') && value['sizes'] is Map) {
               Map<String, dynamic> sizes = value['sizes'] as Map<String, dynamic>;
               sizes.forEach((sizeKey, sizeValue) {
-                if (sizeValue is Map && sizeValue.containsKey('quantity')) {
+                if (sizeValue is Map) {
+                  int quantity = sizeValue['quantity'] ?? 0;
+                  double sizePrice = sizeValue['price'] ?? defaultPrice;
+
                   stockData[sizeKey] = {
-                    'quantity': sizeValue['quantity'],
+                    'quantity': quantity,
+                    'price': sizePrice,
                   };
                 }
               });
@@ -172,9 +192,9 @@
 
             processedMerchData[key] = {
               'label': key,
-              'imagePath': value['imagePath'] ?? '',
-              'price': value['price'] ?? 0.0,
-              'sizes': stockData,  // Include the sizes data
+              'imagePath': imagePath ?? '',
+              'defaultPrice': defaultPrice,
+              'sizes': stockData,
             };
           }
         });
@@ -416,16 +436,11 @@
 
     Widget _buildItemCard(Map<String, dynamic>? itemData) {
       String itemLabel = itemData?['label'] ?? 'Unknown';
-      double price = itemData?['price'] ?? 0;
+      double defaultPrice = itemData?['defaultPrice'] ?? 0;
       Map<String, dynamic>? sizes = itemData?['sizes'];
 
-      // Check if sizes are available for this item
       List<String> availableSizes = sizes != null ? sizes.keys.toList() : [];
-
-      // Get the selected size for this item
       String? selectedSize = _selectedSizes[itemLabel];
-
-      // Set default quantity if not initialized
       _selectedQuantities[itemLabel] = _selectedQuantities[itemLabel] ?? 0;
 
       return Container(
@@ -443,13 +458,18 @@
               textAlign: TextAlign.center,
             ),
             SizedBox(height: 4),
-            Text(
-              'Price: ₱$price',
-              style: TextStyle(fontWeight: FontWeight.bold, color: Colors.green),
-            ),
+            if (selectedSize != null && sizes != null && sizes.containsKey(selectedSize))
+              Text(
+                'Price: ₱${sizes[selectedSize]?['price'] ?? defaultPrice}',
+                style: TextStyle(fontWeight: FontWeight.bold, color: Colors.green),
+              )
+            else
+              Text(
+                'Default Price: ₱$defaultPrice',
+                style: TextStyle(fontWeight: FontWeight.bold, color: Colors.green),
+              ),
             SizedBox(height: 8),
 
-            // Dropdown to select the size
             if (availableSizes.isNotEmpty)
               DropdownButton<String>(
                 value: selectedSize,
@@ -457,7 +477,6 @@
                 onChanged: (newSize) {
                   setState(() {
                     _selectedSizes[itemLabel] = newSize;
-                    // Reset the quantity when a new size is selected
                     _selectedQuantities[itemLabel] = 0;
                   });
                 },
@@ -498,7 +517,6 @@
                       int currentQuantity = _selectedQuantities[itemLabel] ?? 0;
                       int availableQuantity = sizes![selectedSize]['quantity'] ?? 0;
 
-                      // Allow increment only if current quantity is less than available quantity
                       if (currentQuantity < availableQuantity) {
                         setState(() {
                           _selectedQuantities[itemLabel] = currentQuantity + 1;
@@ -521,27 +539,22 @@
         return;
       }
 
-      // Check if any item has been selected
       bool hasSelectedItem = _selectedQuantities.values.any((quantity) => quantity > 0);
 
       if (!hasSelectedItem) {
         Get.snackbar('Error', 'No items selected. Please add at least one item to the order.');
-        return; // Prevent submission if no item is selected
+        return;
       }
 
       String studentName = _nameController.text;
       String studentNumber = _studentNumberController.text;
 
       try {
-        // Prepare list of items for the order
         List<Map<String, dynamic>> cartItems = [];
-
         for (String item in _selectedQuantities.keys) {
           int quantity = _selectedQuantities[item] ?? 0;
           String? size = _selectedSizes[item];
-
           if (quantity > 0 && size != null && size != 'None') {
-            // Add category field based on the selected category
             String category;
             String? courseLabel;
 
@@ -550,27 +563,23 @@
                 category = 'senior_high_items';
               } else {
                 category = 'college_items';
-                courseLabel = _selectedCourseLabel; // Include course label for college items
+                courseLabel = _selectedCourseLabel;
               }
             } else {
               category = 'Merch & Accessories';
             }
 
-            // Prepare item data for admin_transactions and approved_items
             Map<String, dynamic> itemData = {
               'itemLabel': item,
               'itemSize': size,
               'quantity': quantity,
               'category': category,
-              'courseLabel': courseLabel, // Add courseLabel for college items
+              'courseLabel': courseLabel,
             };
 
             cartItems.add(itemData);
 
-            // Deduct the quantity from Firestore
             await _deductItemQuantity(item, size, quantity);
-
-            // Add item to approved_items (WalkIn)
             CollectionReference approvedItemsRef = FirebaseFirestore.instance.collection('approved_items');
             await approvedItemsRef.add({
               'itemLabel': item,
@@ -579,12 +588,11 @@
               'pricePerPiece': _getItemPrice(category, item, courseLabel),
               'quantity': quantity,
               'reservationDate': FieldValue.serverTimestamp(),
-              'approvalDate': FieldValue.serverTimestamp(), // Assuming approval is immediate
+              'approvalDate': FieldValue.serverTimestamp(),
             });
           }
         }
 
-        // Create transaction record in admin_transactions
         CollectionReference adminRef = FirebaseFirestore.instance.collection('admin_transactions');
         await adminRef.add({
           'userName': studentName,
@@ -596,7 +604,6 @@
 
         Get.snackbar('Success', 'Order submitted successfully!');
 
-        // Refresh inventory data after a successful order
         _refreshData();
 
       } catch (e) {
@@ -605,7 +612,6 @@
       }
     }
 
-// Helper function to get the item price based on category, courseLabel, and itemLabel
     double _getItemPrice(String category, String itemLabel, String? courseLabel) {
       if (category == 'senior_high_items') {
         return _seniorHighStockQuantities[itemLabel]?['price'] ?? 0.0;
@@ -614,7 +620,7 @@
       } else if (category == 'Merch & Accessories') {
         return _merchStockQuantities[itemLabel]?['price'] ?? 0.0;
       } else {
-        return 0.0; // Default price
+        return 0.0;
       }
     }
 
@@ -625,10 +631,9 @@
         _loading = true;
       });
 
-      // Fetch the updated inventory data
       _fetchInventoryData().then((_) {
         setState(() {
-          _loading = false;  // Hide loading indicator after fetching
+          _loading = false;
         });
       });
     }
@@ -637,26 +642,22 @@
       try {
         CollectionReference itemsRef;
 
-        // Determine the collection to query based on the selected category and school level
         if (_selectedCategory == 'Uniform') {
           if (_selectedSchoolLevel == 'Senior High') {
-            // Reference the senior high items collection
             itemsRef = FirebaseFirestore.instance
                 .collection('Inventory_stock')
                 .doc('senior_high_items')
                 .collection('Items');
           } else if (_selectedSchoolLevel == 'College') {
-            // Reference the college items collection
             itemsRef = FirebaseFirestore.instance
                 .collection('Inventory_stock')
                 .doc('college_items')
-                .collection(_selectedCourseLabel ?? ''); // Use the selected course label for the sub-collection
+                .collection(_selectedCourseLabel ?? '');
           } else {
             print('Unknown school level.');
             return;
           }
         } else if (_selectedCategory == 'Merch & Accessories') {
-          // Reference the Merch & Accessories collection
           itemsRef = FirebaseFirestore.instance
               .collection('Inventory_stock')
               .doc('Merch & Accessories')
@@ -666,33 +667,25 @@
           return;
         }
 
-        // Query the collection for the document where the label matches the itemLabel
         QuerySnapshot querySnapshot = await itemsRef
             .where('label', isEqualTo: itemLabel)
-            .limit(1) // Limit to 1 result since label should be unique
+            .limit(1)
             .get();
 
-        // Check if we found a document
         if (querySnapshot.docs.isEmpty) {
           print('Item $itemLabel does not exist.');
           return;
         }
 
-        // Get the first document (there should be only one)
         DocumentSnapshot itemDoc = querySnapshot.docs.first;
 
-        // Extract item data and sizes
         Map<String, dynamic> itemData = itemDoc.data() as Map<String, dynamic>;
         Map<String, dynamic> sizes = itemData['sizes'] as Map<String, dynamic>;
 
-        // Get current quantity for the selected size
         int currentQuantity = sizes[size]['quantity'];
 
         if (currentQuantity >= quantity) {
-          // Deduct the quantity
           sizes[size]['quantity'] = currentQuantity - quantity;
-
-          // Update the Firestore document with the new sizes data
           await itemsRef.doc(itemDoc.id).update({'sizes': sizes});
 
           print('Quantity updated for $itemLabel, size $size: New quantity is ${sizes[size]['quantity']}');
@@ -710,10 +703,8 @@
       List<Map<String, dynamic>> sortedOrderSummary = cartItems.map((item) {
         String itemLabel = item['itemLabel'];
         String? itemCategory = item['category'];
-        String? courseLabel = item['courseLabel'];  // Add courseLabel if applicable
+        String? courseLabel = item['courseLabel'];
         int quantity = item['quantity'];
-
-        // Retrieve the price depending on the category and the course label
         double pricePerPiece = 0.0;
 
         if (itemCategory == 'senior_high_items') {
@@ -732,7 +723,7 @@
           'quantity': quantity,
           'pricePerPiece': pricePerPiece,
           'totalPrice': totalPrice,
-          'courseLabel': courseLabel,  // Include courseLabel in the order summary
+          'courseLabel': courseLabel,
         };
       }).toList();
 
