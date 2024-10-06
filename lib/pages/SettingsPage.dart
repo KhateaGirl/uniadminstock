@@ -230,7 +230,6 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   void _refreshUIAfterUpload() {
-    // Reset the state of the form after successful upload
     setState(() {
       _selectedImageFile = null; // Clear the selected image file
       _webImage = null; // Clear the web image
