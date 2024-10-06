@@ -56,6 +56,10 @@ class _ReservationListPageState extends State<ReservationListPage> {
         reservationData['userName'] = userName;
         reservationData['studentId'] = studentId;
         reservationData['userId'] = userDoc.id;
+        reservationData['category'] = reservationData['category'] ?? 'Unknown Category';
+        reservationData['itemLabel'] = reservationData['itemLabel'] ?? 'No Label';
+        reservationData['itemSize'] = reservationData['itemSize'] ?? 'Unknown Size';
+        reservationData['courseLabel'] = reservationData['courseLabel'] ?? 'Unknown Course';
 
         if (reservationData.containsKey('items') && reservationData['items'] is List) {
           List<dynamic> orderItems = reservationData['items'];
@@ -99,23 +103,18 @@ class _ReservationListPageState extends State<ReservationListPage> {
 
   Future<void> _approveReservation(Map<String, dynamic> reservation) async {
     try {
+      // Extract common reservation data
       String userId = reservation['userId'] ?? '';
       String orderId = reservation['orderId'] ?? '';
-      String itemLabel = reservation['itemLabel'] ?? 'No Label';
       String userName = reservation['userName'] ?? 'Unknown User';
-      String itemSize = reservation['itemSize'] ?? 'Unknown Size';
+      String studentId = reservation['studentId'] ?? 'Unknown ID';
 
-      // Calculate total quantity for bulk orders
-      int totalQuantity = 0;
-      if (reservation.containsKey('items') && reservation['items'] is List) {
-        List orderItems = reservation['items'];
-        totalQuantity = orderItems.fold<int>(0, (sum, item) => sum + (item['quantity'] ?? 0));
+      // Validate userId and orderId
+      if (userId.isEmpty || orderId.isEmpty) {
+        throw Exception('Invalid reservation data: userId or orderId is missing.');
       }
 
-      if (userId.isEmpty || orderId.isEmpty || totalQuantity <= 0) {
-        throw Exception('Invalid reservation data: userId or orderId is missing, or quantity is zero.');
-      }
-
+      // Fetch the order document to validate its existence
       DocumentSnapshot orderDoc = await _firestore
           .collection('users')
           .doc(userId)
@@ -129,73 +128,117 @@ class _ReservationListPageState extends State<ReservationListPage> {
 
       Timestamp reservationDate = orderDoc['orderDate'] ?? Timestamp.now();
 
-      String mainCategory = reservation['category'] ?? 'Unknown Category';
-      if (mainCategory == 'college_items' || mainCategory == 'senior_high_items') {
-        mainCategory = 'Uniform';
+      // Handle bulk orders or individual items
+      List<dynamic> orderItems = reservation['items'] ?? [];
+      if (orderItems.isEmpty) {
+        throw Exception('No items found in the reservation');
       }
 
-      DocumentSnapshot inventoryDoc = await _firestore
-          .collection('inventory_stock')
-          .doc(itemLabel)
-          .get();
+      for (var item in orderItems) {
+        // Extract item-specific data
+        String itemLabel = (item['itemLabel'] ?? 'No Label').trim(); // Keeping the original case and just trimming whitespace
+        String itemSize = (item['itemSize'] ?? 'Unknown Size').trim();
+        String mainCategory = (item['category'] ?? '').trim().toLowerCase(); // Lowercase for mainCategory, assuming standardization
+        String subCategory = (item['courseLabel'] ?? '').trim(); // Use courseLabel to navigate to the right sub-collection
+        int quantity = item['quantity'] ?? 0;
 
-      if (!inventoryDoc.exists) {
-        throw Exception('Item not found in inventory');
+        // Validate item data
+        if (itemLabel.isEmpty || mainCategory.isEmpty || subCategory.isEmpty || quantity <= 0) {
+          throw Exception('Invalid item data: missing item label, category, subCategory, or quantity.');
+        }
+
+        // Debugging logs for reservation item details
+        print('Processing item with category: $mainCategory, subCategory: $subCategory, itemLabel: "$itemLabel", itemSize: $itemSize');
+
+        // Query the inventory collection, matching itemLabel in the reservation with label in inventory
+        QuerySnapshot inventoryQuery = await _firestore
+            .collection('inventory_stock')
+            .doc(mainCategory)  // Either 'college_items' or 'senior_high_items'
+            .collection(subCategory)  // e.g., 'IT&CPE'
+            .where('label', isEqualTo: itemLabel)  // Correctly match the itemLabel with the inventory 'label' field
+            .get();
+
+        if (inventoryQuery.docs.isEmpty) {
+          // Detailed error log to identify if the itemLabel is the issue
+          print('Item with label "$itemLabel" not found in inventory for category "$mainCategory" under "$subCategory".');
+          throw Exception('Item "$itemLabel" not found in inventory for category "$mainCategory" under "$subCategory".');
+        }
+
+        DocumentSnapshot inventoryDoc = inventoryQuery.docs.first;
+        Map<String, dynamic> inventoryData = inventoryDoc.data() as Map<String, dynamic>;
+
+        // Log the inventory document details to verify fields
+        print('Inventory data retrieved: ${inventoryData.toString()}');
+
+        // Check if sizes exist in inventory data and validate the size
+        if (!inventoryData.containsKey('sizes') || !inventoryData['sizes'].containsKey(itemSize)) {
+          print('Size "$itemSize" not found for item "$itemLabel" in inventory.');
+          throw Exception('Size "$itemSize" not found for item "$itemLabel" in inventory.');
+        }
+
+        int currentStock = inventoryData['sizes'][itemSize]['quantity'] ?? 0;
+        if (currentStock < quantity) {
+          print('Not enough stock available for item "$itemLabel" size "$itemSize". Only $currentStock in stock, but $quantity requested.');
+          throw Exception('Not enough stock available for item "$itemLabel" size "$itemSize". Only $currentStock in stock, but $quantity requested.');
+        }
+
+        int updatedStock = currentStock - quantity;
+
+        // Update the specific size's quantity in the inventory
+        await _firestore.collection('inventory_stock')
+            .doc(mainCategory)  // Either 'college_items' or 'senior_high_items'
+            .collection(subCategory)  // e.g., 'IT&CPE'
+            .doc(inventoryDoc.id)  // The ID of the document found through the query
+            .update({
+          'sizes.$itemSize.quantity': updatedStock,
+        });
+
+        // Log successful stock update
+        print('Stock updated for item "$itemLabel" size "$itemSize". New quantity: $updatedStock');
+
+        // Add to approved items collection
+        await _firestore.collection('approved_items').add({
+          'reservationDate': reservationDate,
+          'approvalDate': FieldValue.serverTimestamp(),
+          'itemLabel': itemLabel,
+          'itemSize': itemSize,
+          'quantity': quantity,
+          'name': userName,
+          'pricePerPiece': item['price'],
+        });
+
+        // Add transaction to admin records
+        await _firestore.collection('admin_transactions').add({
+          'cartItemRef': orderId,
+          'category': mainCategory,
+          'courseLabel': subCategory,
+          'itemLabel': itemLabel,
+          'itemSize': itemSize,
+          'quantity': quantity,
+          'studentNumber': studentId,
+          'timestamp': FieldValue.serverTimestamp(),
+          'userId': userId,
+          'userName': userName,
+        });
       }
 
-      Map<String, dynamic> inventoryData = inventoryDoc.data() as Map<String, dynamic>;
-      int currentStock = inventoryData['stockQuantity'] ?? 0;
+      // Update the order status to approved
+      await _firestore.collection('users').doc(userId).collection('orders').doc(orderId).update({'status': 'approved'});
 
-      if (currentStock < totalQuantity) {
-        throw Exception('Not enough stock available for item "$itemLabel". Only $currentStock in stock, but $totalQuantity requested.');
-      }
-
-      int updatedStock = currentStock - totalQuantity;
-
-      await _firestore.collection('inventory_stock').doc(itemLabel).update({
-        'stockQuantity': updatedStock,
-      });
-
-      await _firestore
-          .collection('users')
-          .doc(userId)
-          .collection('orders')
-          .doc(orderId)
-          .update({'status': 'approved'});
-
-      // Assuming that the first item is representative of the bulk order
-      await _firestore.collection('approved_items').add({
-        'reservationDate': reservationDate,
-        'approvalDate': FieldValue.serverTimestamp(),
-        'itemLabel': itemLabel,
-        'itemSize': itemSize,
-        'quantity': totalQuantity, // Use total quantity here
-        'name': userName,
-        'pricePerPiece': reservation['price'] != null ? reservation['price'] / totalQuantity : 0,
-      });
-
-      await _firestore.collection('admin_transactions').add({
-        'cartItemRef': orderId,
-        'category': mainCategory,
-        'courseLabel': reservation['courseLabel'] ?? 'Unknown Course',
-        'itemLabel': itemLabel,
-        'itemSize': itemSize,
-        'quantity': totalQuantity, // Use total quantity here
-        'studentNumber': reservation['studentId'] ?? 'Unknown',
-        'timestamp': FieldValue.serverTimestamp(),
-        'userId': userId,
-        'userName': userName,
-      });
-
+      // Send notification to user
       await _sendNotificationToUser(userId, userName, reservation);
 
+      // Delete the order document now that it has been successfully processed
+      await _firestore.collection('users').doc(userId).collection('orders').doc(orderId).delete();
+
+      // Update local state
       setState(() {
         allPendingReservations.removeWhere((element) => element['orderId'] == orderId);
       });
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Reservation for $itemLabel approved successfully! Stock has been updated.'),
+          content: Text('Reservation for ${reservation['items'].map((e) => e['itemLabel']).join(", ")} approved successfully! Stock has been updated and order deleted.'),
           backgroundColor: Colors.green,
         ),
       );
