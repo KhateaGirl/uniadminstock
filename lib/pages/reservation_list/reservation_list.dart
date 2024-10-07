@@ -47,6 +47,7 @@ class _ReservationListPageState extends State<ReservationListPage> {
           .collection('users')
           .doc(userDoc.id)
           .collection('orders')
+          .where('status', isEqualTo: 'pending') // Only fetch pending orders
           .get();
 
       for (var orderDoc in ordersSnapshot.docs) {
@@ -57,7 +58,7 @@ class _ReservationListPageState extends State<ReservationListPage> {
         reservationData['studentId'] = studentId;
         reservationData['userId'] = userDoc.id;
         reservationData['category'] = reservationData['category'] ?? 'Unknown Category';
-        reservationData['itemLabel'] = reservationData['itemLabel'] ?? 'No Label';
+        reservationData['label'] = reservationData['label'] ?? 'No Label';
         reservationData['itemSize'] = reservationData['itemSize'] ?? 'Unknown Size';
         reservationData['courseLabel'] = reservationData['courseLabel'] ?? 'Unknown Course';
 
@@ -109,7 +110,9 @@ class _ReservationListPageState extends State<ReservationListPage> {
       String userName = reservation['userName'] ?? 'Unknown User';
       String studentId = reservation['studentId'] ?? 'Unknown ID';
 
-      // Validate userId and orderId
+      print('Approving reservation for userId: $userId, orderId: $orderId');
+      print('Reservation details: $reservation');
+
       if (userId.isEmpty || orderId.isEmpty) {
         throw Exception('Invalid reservation data: userId or orderId is missing.');
       }
@@ -127,6 +130,7 @@ class _ReservationListPageState extends State<ReservationListPage> {
       }
 
       Timestamp reservationDate = orderDoc['orderDate'] ?? Timestamp.now();
+      print('Reservation date: $reservationDate');
 
       // Handle bulk orders or individual items
       List<dynamic> orderItems = reservation['items'] ?? [];
@@ -134,77 +138,34 @@ class _ReservationListPageState extends State<ReservationListPage> {
         throw Exception('No items found in the reservation');
       }
 
+      // Loop over items and add them to the approved items collection
       for (var item in orderItems) {
         // Extract item-specific data
-        String itemLabel = (item['itemLabel'] ?? 'No Label').trim(); // Keeping the original case and just trimming whitespace
+        String label = (item['label'] ?? 'No Label').trim();
         String itemSize = (item['itemSize'] ?? 'Unknown Size').trim();
-        String mainCategory = (item['category'] ?? '').trim().toLowerCase(); // Lowercase for mainCategory, assuming standardization
-        String subCategory = (item['courseLabel'] ?? '').trim(); // Use courseLabel to navigate to the right sub-collection
+        String mainCategory = (item['category'] ?? '').trim();
+        String subCategory = (item['courseLabel'] ?? '').trim();
         int quantity = item['quantity'] ?? 0;
+        double price = item['price'] ?? 0.0;
 
-        // Validate item data
-        if (itemLabel.isEmpty || mainCategory.isEmpty || subCategory.isEmpty || quantity <= 0) {
-          throw Exception('Invalid item data: missing item label, category, subCategory, or quantity.');
+        print('Processing item:');
+        print('Label: $label, Item Size: $itemSize, Main Category: $mainCategory, SubCategory: $subCategory, Quantity: $quantity');
+
+        if (label.isEmpty || mainCategory.isEmpty || subCategory.isEmpty || quantity <= 0) {
+          throw Exception('Invalid item data: missing label, category, subCategory, or quantity.');
         }
-
-        // Debugging logs for reservation item details
-        print('Processing item with category: $mainCategory, subCategory: $subCategory, itemLabel: "$itemLabel", itemSize: $itemSize');
-
-        // Query the inventory collection, matching itemLabel in the reservation with label in inventory
-        QuerySnapshot inventoryQuery = await _firestore
-            .collection('inventory_stock')
-            .doc(mainCategory)  // Either 'college_items' or 'senior_high_items'
-            .collection(subCategory)  // e.g., 'IT&CPE'
-            .where('label', isEqualTo: itemLabel)  // Correctly match the itemLabel with the inventory 'label' field
-            .get();
-
-        if (inventoryQuery.docs.isEmpty) {
-          // Detailed error log to identify if the itemLabel is the issue
-          print('Item with label "$itemLabel" not found in inventory for category "$mainCategory" under "$subCategory".');
-          throw Exception('Item "$itemLabel" not found in inventory for category "$mainCategory" under "$subCategory".');
-        }
-
-        DocumentSnapshot inventoryDoc = inventoryQuery.docs.first;
-        Map<String, dynamic> inventoryData = inventoryDoc.data() as Map<String, dynamic>;
-
-        // Log the inventory document details to verify fields
-        print('Inventory data retrieved: ${inventoryData.toString()}');
-
-        // Check if sizes exist in inventory data and validate the size
-        if (!inventoryData.containsKey('sizes') || !inventoryData['sizes'].containsKey(itemSize)) {
-          print('Size "$itemSize" not found for item "$itemLabel" in inventory.');
-          throw Exception('Size "$itemSize" not found for item "$itemLabel" in inventory.');
-        }
-
-        int currentStock = inventoryData['sizes'][itemSize]['quantity'] ?? 0;
-        if (currentStock < quantity) {
-          print('Not enough stock available for item "$itemLabel" size "$itemSize". Only $currentStock in stock, but $quantity requested.');
-          throw Exception('Not enough stock available for item "$itemLabel" size "$itemSize". Only $currentStock in stock, but $quantity requested.');
-        }
-
-        int updatedStock = currentStock - quantity;
-
-        // Update the specific size's quantity in the inventory
-        await _firestore.collection('inventory_stock')
-            .doc(mainCategory)  // Either 'college_items' or 'senior_high_items'
-            .collection(subCategory)  // e.g., 'IT&CPE'
-            .doc(inventoryDoc.id)  // The ID of the document found through the query
-            .update({
-          'sizes.$itemSize.quantity': updatedStock,
-        });
-
-        // Log successful stock update
-        print('Stock updated for item "$itemLabel" size "$itemSize". New quantity: $updatedStock');
 
         // Add to approved items collection
         await _firestore.collection('approved_items').add({
           'reservationDate': reservationDate,
           'approvalDate': FieldValue.serverTimestamp(),
-          'itemLabel': itemLabel,
+          'label': label,
           'itemSize': itemSize,
           'quantity': quantity,
           'name': userName,
-          'pricePerPiece': item['price'],
+          'pricePerPiece': price,
+          'mainCategory': mainCategory,
+          'subCategory': subCategory,
         });
 
         // Add transaction to admin records
@@ -212,7 +173,7 @@ class _ReservationListPageState extends State<ReservationListPage> {
           'cartItemRef': orderId,
           'category': mainCategory,
           'courseLabel': subCategory,
-          'itemLabel': itemLabel,
+          'label': label,
           'itemSize': itemSize,
           'quantity': quantity,
           'studentNumber': studentId,
@@ -224,24 +185,23 @@ class _ReservationListPageState extends State<ReservationListPage> {
 
       // Update the order status to approved
       await _firestore.collection('users').doc(userId).collection('orders').doc(orderId).update({'status': 'approved'});
+      print('Order status updated to approved for orderId: $orderId');
 
-      // Send notification to user
+      // Send a notification to the user about the approval
       await _sendNotificationToUser(userId, userName, reservation);
+      print('Notification sent to user: $userName');
 
-      // Delete the order document now that it has been successfully processed
-      await _firestore.collection('users').doc(userId).collection('orders').doc(orderId).delete();
+      // Refresh the reservation list after successful approval
+      await _fetchAllPendingReservations();
 
-      // Update local state
-      setState(() {
-        allPendingReservations.removeWhere((element) => element['orderId'] == orderId);
-      });
-
+      // Show success message
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Reservation for ${reservation['items'].map((e) => e['itemLabel']).join(", ")} approved successfully! Stock has been updated and order deleted.'),
+          content: Text('Reservation for ${reservation['items'].map((e) => e['label']).join(", ")} approved successfully!'),
           backgroundColor: Colors.green,
         ),
       );
+
     } catch (e) {
       print('Error approving reservation: $e');
       ScaffoldMessenger.of(context).showSnackBar(
@@ -267,7 +227,7 @@ class _ReservationListPageState extends State<ReservationListPage> {
           double totalPrice = pricePerPiece * quantity;
 
           orderSummary.add({
-            'itemLabel': item['itemLabel'],
+            'label': item['label'],
             'itemSize': item['itemSize'],
             'quantity': quantity,
             'pricePerPiece': pricePerPiece,
@@ -282,7 +242,7 @@ class _ReservationListPageState extends State<ReservationListPage> {
         double totalPrice = pricePerPiece * quantity;
 
         orderSummary.add({
-          'itemLabel': reservation['itemLabel'],
+          'label': reservation['label'],
           'itemSize': reservation['itemSize'],
           'quantity': quantity,
           'pricePerPiece': pricePerPiece,
@@ -296,7 +256,7 @@ class _ReservationListPageState extends State<ReservationListPage> {
         'Your bulk reservation (${orderSummary.length} items) has been approved.';
       } else {
         notificationMessage =
-        'Your reservation for ${orderSummary[0]['itemLabel']} (${orderSummary[0]['itemSize']}) has been approved.';
+        'Your reservation for ${orderSummary[0]['label']} (${orderSummary[0]['itemSize']}) has been approved.';
       }
       CollectionReference notificationsRef = FirebaseFirestore.instance
           .collection('users')
@@ -351,7 +311,7 @@ class _ReservationListPageState extends State<ReservationListPage> {
                   columns: [
                     DataColumn(label: Text('Name')),
                     DataColumn(label: Text('Student ID')),
-                    DataColumn(label: Text('Item Label')),
+                    DataColumn(label: Text('Label')),
                     DataColumn(label: Text('Size')),
                     DataColumn(label: Text('Quantity')),
                     DataColumn(label: Text('Price per Piece')),
@@ -392,7 +352,7 @@ class _ReservationListPageState extends State<ReservationListPage> {
                                 ),
                               Text(orderItems.length > 1
                                   ? 'Bulk Order (${orderItems.length} items)'
-                                  : (orderItems.isNotEmpty ? orderItems[0]['itemLabel'] ?? 'No label' : 'No label')),
+                                  : (orderItems.isNotEmpty ? orderItems[0]['label'] ?? 'No label' : 'No label')),
                             ],
                           )),
                           DataCell(Text('')), // Size not applicable for the bulk order summary
@@ -422,11 +382,11 @@ class _ReservationListPageState extends State<ReservationListPage> {
                     if (isExpanded) {
                       rows.addAll(orderItems.map<DataRow>((item) {
                         return DataRow(
-                          key: ValueKey('${reservation['orderId']}_${item['itemLabel']}'),
+                          key: ValueKey('${reservation['orderId']}_${item['label']}'),
                           cells: [
                             DataCell(Text('')), // Empty cell for indentation
                             DataCell(Text('')),
-                            DataCell(Text(item['itemLabel'] ?? 'No label')),
+                            DataCell(Text(item['label'] ?? 'No label')),
                             DataCell(Text(item['itemSize'] ?? 'No Size')),
                             DataCell(Text('${item['quantity'] ?? 1}')), // Quantity per item
                             DataCell(Text('₱${(item['price'] ?? 0).toStringAsFixed(2)}')), // Price per piece per item
