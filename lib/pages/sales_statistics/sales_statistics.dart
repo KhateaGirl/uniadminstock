@@ -73,14 +73,14 @@ class _SalesStatisticsPageState extends State<SalesStatisticsPage> {
         var transactionData = doc.data() as Map<String, dynamic>;
 
         // Directly access each field, not from a 'cartItems' list
-        String itemLabel = transactionData['itemLabel'] ?? 'Unknown';
+        String label = transactionData['label'] ?? 'Unknown';
         String itemSize = transactionData['itemSize'] ?? 'Unknown';
         double quantity = (transactionData['quantity'] ?? 0).toDouble();
         String category = transactionData['category'] ?? 'Unknown';
-        String itemKey = '$itemLabel ($itemSize)';
+        String itemKey = '$label ($itemSize)';
 
         if (category == 'senior_high_items' || category == 'Uniform') {
-          // Senior High sales
+          // S  enior High sales
           seniorHighSales[itemKey] = (seniorHighSales[itemKey] ?? 0) + quantity;
         } else if (category == 'college_items') {
           // College sales

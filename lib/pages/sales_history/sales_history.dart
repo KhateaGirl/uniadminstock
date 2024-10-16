@@ -63,7 +63,7 @@ class _SalesHistoryPageState extends State<SalesHistoryPage> {
               var transactionData = transactionDoc.data() as Map<String, dynamic>;
 
               Map<String, dynamic> saleItem = {
-                'itemLabel': transactionData['itemLabel'] ?? 'N/A',
+                'label': transactionData['label'] ?? 'N/A',
                 'itemSize': transactionData['itemSize'] ?? 'N/A',
                 'quantity': transactionData['quantity'] ?? 0,
                 'category': transactionData['category'] ?? 'N/A',
@@ -99,7 +99,7 @@ class _SalesHistoryPageState extends State<SalesHistoryPage> {
                           ],
                           rows: allSalesItems.map((saleItem) {
                             return DataRow(cells: [
-                              DataCell(Text(saleItem['itemLabel'] ?? 'N/A')),
+                              DataCell(Text(saleItem['label'] ?? 'N/A')),
                               DataCell(Text(saleItem['itemSize'] ?? 'N/A')),
                               DataCell(Text(saleItem['quantity'].toString())),
                               DataCell(Text(saleItem['category'] ?? 'N/A')),

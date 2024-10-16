@@ -30,7 +30,6 @@ class _OverviewPageState extends State<OverviewPage> {
     _fetchLatestSale();
   }
 
-  // Function to fetch the latest sale
   Future<void> _fetchLatestSale() async {
     try {
       QuerySnapshot latestSaleSnapshot = await _firestore
@@ -42,10 +41,10 @@ class _OverviewPageState extends State<OverviewPage> {
       if (latestSaleSnapshot.docs.isNotEmpty) {
         var mostRecentDoc = latestSaleSnapshot.docs.first;
         var latestTransaction = mostRecentDoc.data() as Map<String, dynamic>;
-        String latestItemLabel = latestTransaction['itemLabel'] ?? 'N/A';
+        String latestlabel = latestTransaction['label'] ?? 'N/A';
 
         setState(() {
-          _latestSale = latestItemLabel;
+          _latestSale = latestlabel;
         });
       }
     } catch (e) {
@@ -53,37 +52,28 @@ class _OverviewPageState extends State<OverviewPage> {
     }
   }
 
-  // Fetch sales statistics data from admin_transactions
   Future<void> _fetchSalesStatistics() async {
     try {
-      QuerySnapshot salesSnapshot = await _firestore.collection('admin_transactions').get();
+      QuerySnapshot salesSnapshot = await _firestore.collection('approved_items').get();
 
       Map<String, double> collegeSales = {};
       Map<String, double> seniorHighSales = {};
 
-      // Iterate through each document in the `admin_transactions` collection
       for (var doc in salesSnapshot.docs) {
         var transactionData = doc.data() as Map<String, dynamic>;
 
-        // Extract necessary fields
-        String itemLabel = transactionData['itemLabel'] ?? 'Unknown';
+        String label = transactionData['label'] ?? 'Unknown';
         double quantity = (transactionData['quantity'] ?? 0).toDouble();
-        String category = transactionData['category'] ?? 'Unknown';
-        String courseLabel = transactionData['courseLabel'] ?? 'Unknown';
+        String category = transactionData['mainCategory'] ?? 'Unknown';
+        String courseLabel = transactionData['subCategory'] ?? 'Unknown';
 
-        // Categorize based on updated logic
-        if (category == 'Uniform') {
-          if (courseLabel != 'Unknown' && courseLabel.isNotEmpty) {
-            // If courseLabel is not "Unknown" and is not empty, consider it Senior High
-            seniorHighSales[itemLabel] = (seniorHighSales[itemLabel] ?? 0) + quantity;
-          } else {
-            // Otherwise, categorize it as College
-            collegeSales[itemLabel] = (collegeSales[itemLabel] ?? 0) + quantity;
-          }
+        if (category == 'college_items') {
+          collegeSales[label] = (collegeSales[label] ?? 0) + quantity;
+        } else if (category == 'senior_high_items') {
+          seniorHighSales[label] = (seniorHighSales[label] ?? 0) + quantity;
         }
       }
 
-      // Update the state with the fetched sales data
       setState(() {
         _collegeSalesData = collegeSales;
         _seniorHighSalesData = seniorHighSales;
@@ -99,7 +89,6 @@ class _OverviewPageState extends State<OverviewPage> {
 
   Future<void> _fetchTotalRevenueAndSales() async {
     try {
-      // Fetch all documents from the `approved_items` collection
       QuerySnapshot salesSnapshot = await _firestore.collection('approved_items').get();
 
       double totalRevenue = 0.0;
@@ -108,15 +97,12 @@ class _OverviewPageState extends State<OverviewPage> {
       for (var doc in salesSnapshot.docs) {
         var sale = doc.data() as Map<String, dynamic>;
 
-        // Extract the quantity and price per piece from each document
         int quantity = sale['quantity'] ?? 0;
         double pricePerPiece = sale['pricePerPiece'] ?? 0.0;
 
-        // Calculate the total revenue for each document and add to the total revenue
         totalRevenue += quantity * pricePerPiece;
       }
 
-      // Update the state to reflect the new total sales and total revenue
       setState(() {
         _totalSales = totalSales;
         _totalRevenue = totalRevenue;
@@ -188,6 +174,10 @@ class _OverviewPageState extends State<OverviewPage> {
   }
 
   Widget _buildMiniChartWithLegend(Map<String, double> salesData) {
+    if (salesData.isEmpty) {
+      return Center(child: Text("No sales data available"));
+    }
+
     return Row(
       mainAxisAlignment: MainAxisAlignment.start,
       crossAxisAlignment: CrossAxisAlignment.start,
