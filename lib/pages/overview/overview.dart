@@ -54,7 +54,7 @@ class _OverviewPageState extends State<OverviewPage> {
 
   Future<void> _fetchSalesStatistics() async {
     try {
-      QuerySnapshot salesSnapshot = await _firestore.collection('approved_items').get();
+      QuerySnapshot salesSnapshot = await _firestore.collection('admin_transactions').get();
 
       Map<String, double> collegeSales = {};
       Map<String, double> seniorHighSales = {};
@@ -62,15 +62,22 @@ class _OverviewPageState extends State<OverviewPage> {
       for (var doc in salesSnapshot.docs) {
         var transactionData = doc.data() as Map<String, dynamic>;
 
-        String label = transactionData['label'] ?? 'Unknown';
-        double quantity = (transactionData['quantity'] ?? 0).toDouble();
-        String category = transactionData['mainCategory'] ?? 'Unknown';
-        String courseLabel = transactionData['subCategory'] ?? 'Unknown';
+        // Check if cartItems exists and is a list
+        if (transactionData['cartItems'] is List) {
+          List<dynamic> cartItems = transactionData['cartItems'];
 
-        if (category == 'college_items') {
-          collegeSales[label] = (collegeSales[label] ?? 0) + quantity;
-        } else if (category == 'senior_high_items') {
-          seniorHighSales[label] = (seniorHighSales[label] ?? 0) + quantity;
+          for (var item in cartItems) {
+            String itemLabel = item['itemLabel'] ?? 'Unknown';
+            double quantity = (item['quantity'] ?? 0).toDouble();
+            String category = item['category'] ?? 'Unknown';
+            String itemKey = itemLabel;
+
+            if (category == 'senior_high_items') {
+              seniorHighSales[itemKey] = (seniorHighSales[itemKey] ?? 0) + quantity;
+            } else if (category == 'college_items') {
+              collegeSales[itemKey] = (collegeSales[itemKey] ?? 0) + quantity;
+            }
+          }
         }
       }
 

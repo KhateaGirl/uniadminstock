@@ -72,19 +72,25 @@ class _SalesStatisticsPageState extends State<SalesStatisticsPage> {
       for (var doc in salesSnapshot.docs) {
         var transactionData = doc.data() as Map<String, dynamic>;
 
-        // Directly access each field, not from a 'cartItems' list
-        String label = transactionData['label'] ?? 'Unknown';
-        String itemSize = transactionData['itemSize'] ?? 'Unknown';
-        double quantity = (transactionData['quantity'] ?? 0).toDouble();
-        String category = transactionData['category'] ?? 'Unknown';
-        String itemKey = '$label ($itemSize)';
+        // Check if cartItems exists and is a list
+        if (transactionData['cartItems'] is List) {
+          List<dynamic> cartItems = transactionData['cartItems'];
 
-        if (category == 'senior_high_items' || category == 'Uniform') {
-          // S  enior High sales
-          seniorHighSales[itemKey] = (seniorHighSales[itemKey] ?? 0) + quantity;
-        } else if (category == 'college_items') {
-          // College sales
-          collegeSales[itemKey] = (collegeSales[itemKey] ?? 0) + quantity;
+          for (var item in cartItems) {
+            String itemLabel = item['itemLabel'] ?? 'Unknown';
+            String itemSize = item['itemSize'] ?? 'Unknown';
+            double quantity = (item['quantity'] ?? 0).toDouble();
+            String category = item['category'] ?? 'Unknown';
+            String itemKey = '$itemLabel ($itemSize)';
+
+            if (category == 'senior_high_items' || category == 'Uniform') {
+              // Senior High sales
+              seniorHighSales[itemKey] = (seniorHighSales[itemKey] ?? 0) + quantity;
+            } else if (category == 'college_items') {
+              // College sales
+              collegeSales[itemKey] = (collegeSales[itemKey] ?? 0) + quantity;
+            }
+          }
         }
       }
 

@@ -62,17 +62,23 @@ class _SalesHistoryPageState extends State<SalesHistoryPage> {
             transactions.forEach((transactionDoc) {
               var transactionData = transactionDoc.data() as Map<String, dynamic>;
 
-              Map<String, dynamic> saleItem = {
-                'label': transactionData['label'] ?? 'N/A',
-                'itemSize': transactionData['itemSize'] ?? 'N/A',
-                'quantity': transactionData['quantity'] ?? 0,
-                'category': transactionData['category'] ?? 'N/A',
-                'userName': transactionData['userName'] ?? 'N/A',
-                'studentNumber': transactionData['studentNumber'] ?? 'N/A',
-                'timestamp': transactionData['timestamp'],
-              };
+              if (transactionData['cartItems'] is List) {
+                List<dynamic> cartItems = transactionData['cartItems'];
 
-              allSalesItems.add(saleItem);
+                for (var item in cartItems) {
+                  Map<String, dynamic> saleItem = {
+                    'itemLabel': item['itemLabel'] ?? 'N/A',
+                    'itemSize': item['itemSize'] ?? 'N/A',
+                    'quantity': item['quantity'] ?? 0,
+                    'category': item['category'] ?? 'N/A',
+                    'userName': transactionData['userName'] ?? 'N/A',
+                    'studentNumber': transactionData['studentNumber'] ?? 'N/A',
+                    'timestamp': transactionData['timestamp'],
+                  };
+
+                  allSalesItems.add(saleItem);
+                }
+              }
             });
 
             return Column(
@@ -99,7 +105,7 @@ class _SalesHistoryPageState extends State<SalesHistoryPage> {
                           ],
                           rows: allSalesItems.map((saleItem) {
                             return DataRow(cells: [
-                              DataCell(Text(saleItem['label'] ?? 'N/A')),
+                              DataCell(Text(saleItem['itemLabel'] ?? 'N/A')),
                               DataCell(Text(saleItem['itemSize'] ?? 'N/A')),
                               DataCell(Text(saleItem['quantity'].toString())),
                               DataCell(Text(saleItem['category'] ?? 'N/A')),
@@ -113,26 +119,26 @@ class _SalesHistoryPageState extends State<SalesHistoryPage> {
                     ),
                   ),
                 ),
-                // Persistent Horizontal Scrollbar at the Bottom
                 SizedBox(
-                  height: 20, // The height of the scrollbar
+                  height: 20,
                   child: Scrollbar(
                     controller: _horizontalController,
-                    thumbVisibility: true, // This ensures the scrollbar is always visible
+                    thumbVisibility: true,
                     child: SingleChildScrollView(
                       controller: _horizontalController,
                       scrollDirection: Axis.horizontal,
                       child: Container(
-                        width: 2000, // Set this width larger than the DataTable's width
+                        width: 2000,
                         height: 20,
-                        color: Colors.transparent, // Keep it transparent
+                        color: Colors.transparent,
                       ),
                     ),
                   ),
                 ),
               ],
             );
-          } else {
+          }
+          else {
             return Center(
               child: CustomText(text: "No data available"),
             );
