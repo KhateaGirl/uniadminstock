@@ -7,12 +7,14 @@ const WalkinPageRoute = "Walk-In";
 const AboutUsPageRoute = "About Us";
 const AuthenticationPageRoute = "Authentication";
 const SettingsPageRoute = "Settings";
+const PreOrderPageRoute = "Pre-Order";
 
 
 List sideMenuItems = [
   OverviewPageRoute,
   InventoryPageRoute,
   ReservationListPageRoute,
+  PreOrderPageRoute,
   SalesHistoryPageRoute,
   SalesStatisticsPageRoute,
   WalkinPageRoute,

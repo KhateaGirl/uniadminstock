@@ -28,6 +28,8 @@ class CustomMenuController extends GetxController{
         return _customIcon(Icons.inventory_sharp, itemName);
       case ReservationListPageRoute:
         return _customIcon(Icons.checklist, itemName);
+      case PreOrderPageRoute:
+        return _customIcon(Icons.shopping_cart, itemName);
       case SalesHistoryPageRoute:
         return _customIcon(Icons.history, itemName);
       case SalesStatisticsPageRoute:

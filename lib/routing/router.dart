@@ -5,6 +5,7 @@ import 'package:unistock/pages/authentication/authentication.dart';
 import 'package:unistock/pages/inventory_stocks/inventory_stocks.dart';
 import 'package:unistock/pages/overview/overview.dart';
 import 'package:unistock/pages/reservation_list/reservation_list.dart';
+import 'package:unistock/pages/pre_order/pre_order.dart';
 import 'package:unistock/pages/sales_history/sales_history.dart';
 import 'package:unistock/pages/sales_statistics/sales_statistics.dart';
 import 'package:unistock/pages/walk-in/walk-in.dart';
@@ -19,6 +20,8 @@ Route<dynamic> generateRoute(RouteSettings settings) {
       return _getPageRoute(InventoryPage());
     case ReservationListPageRoute:
       return _getPageRoute(ReservationListPage());
+    case PreOrderPageRoute:
+      return _getPageRoute(PreOrderPage());
     case SalesHistoryPageRoute:
       return _getPageRoute(SalesHistoryPage());
     case SalesStatisticsPageRoute:
