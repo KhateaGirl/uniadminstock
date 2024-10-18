@@ -16,6 +16,6 @@ List sideMenuItems = [
   SalesHistoryPageRoute,
   SalesStatisticsPageRoute,
   WalkinPageRoute,
-  AboutUsPageRoute, // Add the new route here
+  AboutUsPageRoute,
   AuthenticationPageRoute
 ];

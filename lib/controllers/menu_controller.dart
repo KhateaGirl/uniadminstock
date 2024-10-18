@@ -36,7 +36,9 @@ class CustomMenuController extends GetxController{
         return _customIcon(Icons.directions_walk, itemName);
       case AuthenticationPageRoute:
         return _customIcon(Icons.exit_to_app, itemName);
-      default:
+      case AboutUsPageRoute:
+        return _customIcon(Icons.people_alt, itemName);
+        default:
         return _customIcon(Icons.exit_to_app, itemName);
     }
   }

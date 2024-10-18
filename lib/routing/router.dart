@@ -27,8 +27,8 @@ Route<dynamic> generateRoute(RouteSettings settings) {
       return _getPageRoute(WalkinPage());
     case SettingsPageRoute:
       return _getPageRoute(SettingsPage());
-    case AboutUsPageRoute: // Added this case for AboutUsPage
-      return _getPageRoute(AboutUsPage()); // Use AboutUsPage here
+    case AboutUsPageRoute:
+      return _getPageRoute(AboutUsPage());
     default:
       return _getPageRoute(AuthenticationPage());
   }
