@@ -272,6 +272,14 @@ class _ReservationListPageState extends State<ReservationListPage> {
       appBar: AppBar(
         title: Text("Reservation List"),
         centerTitle: true,
+        actions: [
+          IconButton(
+            icon: Icon(Icons.refresh),
+            onPressed: () {
+              _fetchAllPendingReservations(); // Refresh data when the button is pressed
+            },
+          ),
+        ],
       ),
       body: isLoading
           ? Center(

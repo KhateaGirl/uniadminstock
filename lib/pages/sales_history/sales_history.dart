@@ -35,6 +35,16 @@ class _SalesHistoryPageState extends State<SalesHistoryPage> {
           text: "Sales History",
         ),
         centerTitle: true,
+        actions: [
+          IconButton(
+            icon: Icon(Icons.refresh),
+            onPressed: () {
+              setState(() {
+                // Trigger a rebuild to refresh the stream
+              });
+            },
+          ),
+        ],
       ),
       body: StreamBuilder<QuerySnapshot>(
         stream: _firestore
@@ -62,6 +72,22 @@ class _SalesHistoryPageState extends State<SalesHistoryPage> {
             transactions.forEach((transactionDoc) {
               var transactionData = transactionDoc.data() as Map<String, dynamic>;
 
+              // Process top-level sales data (if exists)
+              if (transactionData.containsKey('label') &&
+                  transactionData.containsKey('quantity')) {
+                Map<String, dynamic> topSaleItem = {
+                  'itemLabel': transactionData['label'] ?? 'N/A',
+                  'itemSize': transactionData['itemSize'] ?? 'N/A',
+                  'quantity': transactionData['quantity'] ?? 0,
+                  'category': transactionData['category'] ?? 'N/A',
+                  'userName': transactionData['userName'] ?? 'N/A',
+                  'studentNumber': transactionData['studentNumber'] ?? 'N/A',
+                  'timestamp': transactionData['timestamp'],
+                };
+                allSalesItems.add(topSaleItem);
+              }
+
+              // Check and process nested cartItems if present
               if (transactionData['cartItems'] is List) {
                 List<dynamic> cartItems = transactionData['cartItems'];
 
@@ -137,8 +163,7 @@ class _SalesHistoryPageState extends State<SalesHistoryPage> {
                 ),
               ],
             );
-          }
-          else {
+          } else {
             return Center(
               child: CustomText(text: "No data available"),
             );

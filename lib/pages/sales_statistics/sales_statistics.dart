@@ -45,6 +45,7 @@ class _SalesStatisticsPageState extends State<SalesStatisticsPage> {
       DateTime now = DateTime.now();
       DateTime startDate;
 
+      // Determine the start date based on the selected period
       if (_selectedPeriod == 'Weekly') {
         startDate = now.subtract(Duration(days: 7));
       } else if (_selectedPeriod == 'Monthly') {
@@ -72,7 +73,24 @@ class _SalesStatisticsPageState extends State<SalesStatisticsPage> {
       for (var doc in salesSnapshot.docs) {
         var transactionData = doc.data() as Map<String, dynamic>;
 
-        // Check if cartItems exists and is a list
+        // Process top-level fields
+        if (transactionData['category'] != null && transactionData['quantity'] != null) {
+          String itemLabel = transactionData['label'] ?? 'Unknown';
+          String itemSize = transactionData['itemSize'] ?? 'Unknown';
+          double quantity = (transactionData['quantity'] ?? 0).toDouble();
+          String category = transactionData['category'] ?? 'Unknown';
+          String itemKey = '$itemLabel ($itemSize)';
+
+          if (category == 'senior_high_items' || category == 'Uniform') {
+            // Senior High sales
+            seniorHighSales[itemKey] = (seniorHighSales[itemKey] ?? 0) + quantity;
+          } else if (category == 'college_items') {
+            // College sales
+            collegeSales[itemKey] = (collegeSales[itemKey] ?? 0) + quantity;
+          }
+        }
+
+        // Process nested `cartItems`
         if (transactionData['cartItems'] is List) {
           List<dynamic> cartItems = transactionData['cartItems'];
 
@@ -113,6 +131,17 @@ class _SalesStatisticsPageState extends State<SalesStatisticsPage> {
       appBar: AppBar(
         title: Text('Sales Statistics'),
         centerTitle: true,
+        actions: [
+          IconButton(
+            icon: Icon(Icons.refresh),
+            onPressed: () {
+              setState(() {
+                _isLoading = true;
+                _fetchSalesData();
+              });
+            },
+          ),
+        ],
       ),
       body: _isLoading
           ? Center(child: CircularProgressIndicator())
