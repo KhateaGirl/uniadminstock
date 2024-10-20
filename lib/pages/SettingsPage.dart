@@ -115,10 +115,18 @@ class _SettingsPageState extends State<SettingsPage> {
       Uint8List? imageBytes = forAnnouncement ? _webImage : _webItemImage;
       File? imageFile = forAnnouncement ? _selectedImageFile : _selectedItemImageFile;
 
+      // Determine the correct storage path based on `courseLabel`
+      String storagePath;
+      if (forAnnouncement) {
+        storagePath = 'admin_images/$documentId/${DateTime.now().millisecondsSinceEpoch}';
+      } else {
+        // Define the folder path based on the selected course label or general path
+        String courseLabelPath = _selectedCourseLabel ?? "General";
+        storagePath = 'items/$courseLabelPath/${DateTime.now().millisecondsSinceEpoch}';
+      }
+
       if (kIsWeb && imageBytes != null) {
-        Reference storageRef = FirebaseStorage.instance
-            .ref()
-            .child('${forAnnouncement ? 'admin_images' : 'item_images'}/$documentId/${DateTime.now().millisecondsSinceEpoch}');
+        Reference storageRef = FirebaseStorage.instance.ref().child(storagePath);
 
         UploadTask uploadTask = storageRef.putData(imageBytes);
         uploadTask.snapshotEvents.listen((TaskSnapshot snapshot) {
@@ -131,9 +139,7 @@ class _SettingsPageState extends State<SettingsPage> {
         TaskSnapshot taskSnapshot = await uploadTask;
         return await taskSnapshot.ref.getDownloadURL();
       } else if (imageFile != null) {
-        Reference storageRef = FirebaseStorage.instance
-            .ref()
-            .child('${forAnnouncement ? 'admin_images' : 'item_images'}/$documentId/${DateTime.now().millisecondsSinceEpoch}');
+        Reference storageRef = FirebaseStorage.instance.ref().child(storagePath);
 
         UploadTask uploadTask = storageRef.putFile(imageFile);
         uploadTask.snapshotEvents.listen((TaskSnapshot snapshot) {

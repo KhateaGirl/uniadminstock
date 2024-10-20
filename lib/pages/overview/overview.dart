@@ -25,9 +25,21 @@ class _OverviewPageState extends State<OverviewPage> {
   @override
   void initState() {
     super.initState();
-    _fetchSalesStatistics();
-    _fetchTotalRevenueAndSales();
-    _fetchLatestSale();
+    _fetchData();
+  }
+
+  Future<void> _fetchData() async {
+    setState(() {
+      _isLoading = true;
+    });
+    await Future.wait([
+      _fetchSalesStatistics(),
+      _fetchTotalRevenueAndSales(),
+      _fetchLatestSale(),
+    ]);
+    setState(() {
+      _isLoading = false;
+    });
   }
 
   Future<void> _fetchLatestSale() async {
@@ -41,10 +53,18 @@ class _OverviewPageState extends State<OverviewPage> {
       if (latestSaleSnapshot.docs.isNotEmpty) {
         var mostRecentDoc = latestSaleSnapshot.docs.first;
         var latestTransaction = mostRecentDoc.data() as Map<String, dynamic>;
-        String latestlabel = latestTransaction['label'] ?? 'N/A';
+
+        String latestLabel = latestTransaction['label'] ?? 'N/A';
+
+        if (latestTransaction['cartItems'] is List) {
+          List<dynamic> cartItems = latestTransaction['cartItems'];
+          if (cartItems.isNotEmpty) {
+            latestLabel = cartItems.first['itemLabel'] ?? latestLabel;
+          }
+        }
 
         setState(() {
-          _latestSale = latestlabel;
+          _latestSale = latestLabel;
         });
       }
     } catch (e) {
@@ -62,7 +82,19 @@ class _OverviewPageState extends State<OverviewPage> {
       for (var doc in salesSnapshot.docs) {
         var transactionData = doc.data() as Map<String, dynamic>;
 
-        // Check if cartItems exists and is a list
+        if (transactionData['category'] != null && transactionData['quantity'] != null) {
+          String itemLabel = transactionData['label'] ?? 'Unknown';
+          double quantity = (transactionData['quantity'] ?? 0).toDouble();
+          String category = transactionData['category'] ?? 'Unknown';
+          String itemKey = itemLabel;
+
+          if (category == 'senior_high_items') {
+            seniorHighSales[itemKey] = (seniorHighSales[itemKey] ?? 0) + quantity;
+          } else if (category == 'college_items') {
+            collegeSales[itemKey] = (collegeSales[itemKey] ?? 0) + quantity;
+          }
+        }
+
         if (transactionData['cartItems'] is List) {
           List<dynamic> cartItems = transactionData['cartItems'];
 
@@ -84,13 +116,9 @@ class _OverviewPageState extends State<OverviewPage> {
       setState(() {
         _collegeSalesData = collegeSales;
         _seniorHighSalesData = seniorHighSales;
-        _isLoading = false;
       });
     } catch (e) {
       print("Error fetching sales statistics: $e");
-      setState(() {
-        _isLoading = false;
-      });
     }
   }
 
@@ -99,15 +127,25 @@ class _OverviewPageState extends State<OverviewPage> {
       QuerySnapshot salesSnapshot = await _firestore.collection('approved_items').get();
 
       double totalRevenue = 0.0;
-      int totalSales = salesSnapshot.docs.length;
+      int totalSales = 0;
 
       for (var doc in salesSnapshot.docs) {
         var sale = doc.data() as Map<String, dynamic>;
 
         int quantity = sale['quantity'] ?? 0;
         double pricePerPiece = sale['pricePerPiece'] ?? 0.0;
-
         totalRevenue += quantity * pricePerPiece;
+        totalSales += quantity;
+
+        if (sale['cartItems'] is List) {
+          List<dynamic> cartItems = sale['cartItems'];
+          for (var item in cartItems) {
+            int itemQuantity = item['quantity'] ?? 0;
+            double itemPrice = item['pricePerPiece'] ?? 0.0;
+            totalRevenue += itemQuantity * itemPrice;
+            totalSales += itemQuantity;
+          }
+        }
       }
 
       setState(() {
@@ -125,6 +163,14 @@ class _OverviewPageState extends State<OverviewPage> {
       appBar: AppBar(
         title: CustomText(text: "Overview"),
         centerTitle: true,
+        actions: [
+          IconButton(
+            icon: Icon(Icons.refresh),
+            onPressed: () {
+              _fetchData(); // Refresh data when the button is pressed
+            },
+          ),
+        ],
       ),
       body: _isLoading
           ? Center(child: CircularProgressIndicator())
