@@ -47,7 +47,7 @@ class _ReservationListPageState extends State<ReservationListPage> {
           .collection('users')
           .doc(userDoc.id)
           .collection('orders')
-          .where('status', isEqualTo: 'pending') // Only fetch pending orders
+          .where('status', isEqualTo: 'pending')
           .get();
 
       for (var orderDoc in ordersSnapshot.docs) {
@@ -104,7 +104,6 @@ class _ReservationListPageState extends State<ReservationListPage> {
 
   Future<void> _approveReservation(Map<String, dynamic> reservation) async {
     try {
-      // Extract common reservation data
       String userId = reservation['userId'] ?? '';
       String orderId = reservation['orderId'] ?? '';
       String userName = reservation['userName'] ?? 'Unknown User';
@@ -117,7 +116,6 @@ class _ReservationListPageState extends State<ReservationListPage> {
         throw Exception('Invalid reservation data: userId or orderId is missing.');
       }
 
-      // Fetch the order document to validate its existence
       DocumentSnapshot orderDoc = await _firestore
           .collection('users')
           .doc(userId)
@@ -132,15 +130,12 @@ class _ReservationListPageState extends State<ReservationListPage> {
       Timestamp reservationDate = orderDoc['orderDate'] ?? Timestamp.now();
       print('Reservation date: $reservationDate');
 
-      // Handle bulk orders or individual items
       List<dynamic> orderItems = reservation['items'] ?? [];
       if (orderItems.isEmpty) {
         throw Exception('No items found in the reservation');
       }
 
-      // Loop over items and add them to the approved items collection
       for (var item in orderItems) {
-        // Extract item-specific data
         String label = (item['label'] ?? 'No Label').trim();
         String itemSize = (item['itemSize'] ?? 'Unknown Size').trim();
         String mainCategory = (item['category'] ?? '').trim();
@@ -155,7 +150,6 @@ class _ReservationListPageState extends State<ReservationListPage> {
           throw Exception('Invalid item data: missing label, category, subCategory, or quantity.');
         }
 
-        // Add to approved items collection
         await _firestore.collection('approved_items').add({
           'reservationDate': reservationDate,
           'approvalDate': FieldValue.serverTimestamp(),
@@ -168,7 +162,6 @@ class _ReservationListPageState extends State<ReservationListPage> {
           'subCategory': subCategory,
         });
 
-        // Add transaction to admin records
         await _firestore.collection('admin_transactions').add({
           'cartItemRef': orderId,
           'category': mainCategory,
@@ -183,18 +176,14 @@ class _ReservationListPageState extends State<ReservationListPage> {
         });
       }
 
-      // Update the order status to approved
       await _firestore.collection('users').doc(userId).collection('orders').doc(orderId).update({'status': 'approved'});
       print('Order status updated to approved for orderId: $orderId');
 
-      // Send a notification to the user about the approval
       await _sendNotificationToUser(userId, userName, reservation);
       print('Notification sent to user: $userName');
 
-      // Refresh the reservation list after successful approval
       await _fetchAllPendingReservations();
 
-      // Show success message
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Reservation for ${reservation['items'].map((e) => e['label']).join(", ")} approved successfully!'),
@@ -323,12 +312,10 @@ class _ReservationListPageState extends State<ReservationListPage> {
                     final List orderItems = reservation['items'] ?? [];
                     bool isExpanded = expandedBulkOrders.contains(reservation['orderId']);
 
-                    // Calculate the total quantity and total price for the bulk order
                     double totalQuantity = orderItems.fold<double>(0, (sum, item) => sum + (item['quantity'] ?? 1));
                     double totalPrice = orderItems.fold<double>(
                         0, (sum, item) => sum + ((item['quantity'] ?? 1) * (item['price'] ?? 0.0)));
 
-                    // Main row for the bulk order
                     List<DataRow> rows = [
                       DataRow(
                         key: ValueKey(reservation['orderId']),
@@ -355,10 +342,10 @@ class _ReservationListPageState extends State<ReservationListPage> {
                                   : (orderItems.isNotEmpty ? orderItems[0]['label'] ?? 'No label' : 'No label')),
                             ],
                           )),
-                          DataCell(Text('')), // Size not applicable for the bulk order summary
-                          DataCell(Text('$totalQuantity')), // Total quantity for the bulk order
-                          DataCell(Text('')), // Price per piece not applicable for the bulk order summary
-                          DataCell(Text('₱${totalPrice.toStringAsFixed(2)}')), // Total price for the bulk order
+                          DataCell(Text('')),
+                          DataCell(Text('$totalQuantity')),
+                          DataCell(Text('')),
+                          DataCell(Text('₱${totalPrice.toStringAsFixed(2)}')),
                           DataCell(Text(
                             reservation['orderDate'] != null && reservation['orderDate'] is Timestamp
                                 ? DateFormat('yyyy-MM-dd HH:mm:ss').format(
@@ -378,25 +365,28 @@ class _ReservationListPageState extends State<ReservationListPage> {
                       ),
                     ];
 
-                    // Expanded rows for each item in the bulk order
                     if (isExpanded) {
                       rows.addAll(orderItems.map<DataRow>((item) {
+                        double pricePerPiece = item['price'] ?? 0.0;
+                        int itemQuantity = item['quantity'] ?? 1;
+                        double itemTotalPrice = pricePerPiece * itemQuantity;
                         return DataRow(
                           key: ValueKey('${reservation['orderId']}_${item['label']}'),
                           cells: [
-                            DataCell(Text('')), // Empty cell for indentation
+                            DataCell(Text('')),
                             DataCell(Text('')),
                             DataCell(Text(item['label'] ?? 'No label')),
                             DataCell(Text(item['itemSize'] ?? 'No Size')),
-                            DataCell(Text('${item['quantity'] ?? 1}')), // Quantity per item
-                            DataCell(Text('₱${(item['price'] ?? 0).toStringAsFixed(2)}')), // Price per piece per item
-                            DataCell(Text('₱${((item['price'] ?? 0) * (item['quantity'] ?? 1)).toStringAsFixed(2)}')), // Total price for each item
-                            DataCell(Text('')), // Empty cell for order date
-                            DataCell(Text('')), // Empty cell for action
+                            DataCell(Text('${itemQuantity}')),
+                            DataCell(Text('₱${pricePerPiece.toStringAsFixed(2)}')),
+                            DataCell(Text('₱${itemTotalPrice.toStringAsFixed(2)}')),
+                            DataCell(Text('')),
+                            DataCell(Text('')),
                           ],
                         );
                       }).toList());
                     }
+
                     return rows;
                   }).toList(),
                 ),

@@ -29,7 +29,7 @@ void main() async {
 
   Get.put(CustomMenuController());
   Get.put(NavigationController());
-  Get.put(UserController());  // Initialize the UserController globally
+  Get.put(UserController());
 
   runApp(MyApp());
 }

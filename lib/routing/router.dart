@@ -9,9 +9,9 @@ import 'package:unistock/pages/pre_order/pre_order.dart';
 import 'package:unistock/pages/sales_history/sales_history.dart';
 import 'package:unistock/pages/sales_statistics/sales_statistics.dart';
 import 'package:unistock/pages/walk-in/walk-in.dart';
+import 'package:unistock/pages/NotificationPage.dart';
 import 'package:unistock/routing/routes.dart';
 
-// Route settings to generate routes
 Route<dynamic> generateRoute(RouteSettings settings) {
   switch (settings.name) {
     case OverviewPageRoute:
@@ -32,12 +32,13 @@ Route<dynamic> generateRoute(RouteSettings settings) {
       return _getPageRoute(SettingsPage());
     case AboutUsPageRoute:
       return _getPageRoute(AboutUsPage());
+    case AdminNotificationPageRoute:
+      return _getPageRoute(AdminNotificationPage());
     default:
       return _getPageRoute(AuthenticationPage());
   }
 }
 
-// Helper function to create a MaterialPageRoute
 PageRoute _getPageRoute(Widget child) {
   return MaterialPageRoute(builder: (context) => child);
 }
