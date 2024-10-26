@@ -177,13 +177,13 @@ class _OverviewPageState extends State<OverviewPage> {
           : SingleChildScrollView(
         padding: const EdgeInsets.all(16.0),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.center, // Center items horizontally
           children: [
             CustomText(text: "Sales Overview", size: 24, weight: FontWeight.bold),
             SizedBox(height: 20),
             Row(
               children: [
-                _buildOverviewCard(Icons.attach_money, 'Total Revenue', '₱${_totalRevenue.toStringAsFixed(2)}'),
+                _buildOverviewCard(Icons.payments, 'Total Revenue', '₱${_totalRevenue.toStringAsFixed(2)}'),
                 SizedBox(width: 10),
                 _buildOverviewCard(Icons.shopping_cart, 'Total Sales', '$_totalSales'),
                 SizedBox(width: 10),
@@ -191,13 +191,27 @@ class _OverviewPageState extends State<OverviewPage> {
               ],
             ),
             SizedBox(height: 30),
-            CustomText(text: "Sales Statistics", size: 18, weight: FontWeight.bold),
+            Center( // Center the Sales Statistics title
+              child: CustomText(text: "Sales Statistics", size: 18, weight: FontWeight.bold),
+            ),
             SizedBox(height: 10),
-            CustomText(text: "College Sales", size: 18, weight: FontWeight.bold),
-            _buildMiniChartWithLegend(_collegeSalesData),
+            Center(
+              child: Column(
+                children: [
+                  CustomText(text: "College Sales", size: 18, weight: FontWeight.bold),
+                  _buildMiniChartWithLegend(_collegeSalesData),
+                ],
+              ),
+            ),
             SizedBox(height: 20),
-            CustomText(text: "Senior High Sales", size: 18, weight: FontWeight.bold),
-            _buildMiniChartWithLegend(_seniorHighSalesData),
+            Center(
+              child: Column(
+                children: [
+                  CustomText(text: "Senior High Sales", size: 18, weight: FontWeight.bold),
+                  _buildMiniChartWithLegend(_seniorHighSalesData),
+                ],
+              ),
+            ),
           ],
         ),
       ),
@@ -231,30 +245,33 @@ class _OverviewPageState extends State<OverviewPage> {
       return Center(child: Text("No sales data available"));
     }
 
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.start,
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        SizedBox(
-          width: 150,
-          height: 150,
-          child: PieChart(
-            PieChartData(
-              sections: salesData.entries.map((entry) {
-                return PieChartSectionData(
-                  color: _getDistinctColor(entry.key),
-                  value: entry.value,
-                  title: '${entry.value.toInt()}',
-                );
-              }).toList(),
-              centerSpaceRadius: 40,
-              sectionsSpace: 2,
+    return Center(
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          SizedBox(
+            width: 350, // Increased width to make the chart larger
+            height: 350, // Increased height to make the chart larger
+            child: PieChart(
+              PieChartData(
+                sections: salesData.entries.map((entry) {
+                  return PieChartSectionData(
+                    color: _getDistinctColor(entry.key),
+                    value: entry.value,
+                    title: '${entry.value.toInt()}',
+                    radius: 90, // Increase for thicker slices
+                  );
+                }).toList(),
+                centerSpaceRadius: 35, // Adjust for smaller/larger inner space
+                sectionsSpace: 2,
+              ),
             ),
           ),
-        ),
-        SizedBox(width: 20),
-        Expanded(
-          child: Column(
+          SizedBox(width: 20),
+          Column(
+            mainAxisAlignment: MainAxisAlignment.center,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: salesData.entries.map((entry) {
               return Row(
@@ -270,8 +287,8 @@ class _OverviewPageState extends State<OverviewPage> {
               );
             }).toList(),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 

@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 class WalkinPage extends StatefulWidget {
   @override
@@ -531,6 +534,62 @@ class _MainWalkInPageState extends State<WalkinPage> {
     );
   }
 
+  Future<void> _sendSMSToUser(String studentId, String studentName, double totalAmount, List<Map<String, dynamic>> cartItems) async {
+    try {
+      // Retrieve the user document by studentId and name
+      QuerySnapshot querySnapshot = await FirebaseFirestore.instance
+          .collection('users')
+          .where('studentId', isEqualTo: studentId)
+          .where('name', isEqualTo: studentName)
+          .limit(1)
+          .get();
+
+      if (querySnapshot.docs.isNotEmpty) {
+        DocumentSnapshot userSnapshot = querySnapshot.docs.first;
+
+        // Extract contact number from user document
+        String? contactNumber = (userSnapshot.data() as Map<String, dynamic>)['contactNumber'];
+
+        if (contactNumber != null && contactNumber.isNotEmpty) {
+          // Construct the SMS message
+          String message = "Hello $studentName with student ID $studentId, your order has been placed successfully. Total amount: ₱$totalAmount. Items: ";
+
+          // Append cart items to the message
+          for (var item in cartItems) {
+            message += "${item['itemLabel']} (x${item['quantity']}), ";
+          }
+          message = message.trimRight().replaceAll(RegExp(r',\s*$'), '');
+
+          // Send SMS request to your server
+          final response = await http.post(
+            Uri.parse('http://localhost:3000/send-sms'),
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: jsonEncode({
+              'apikey': dotenv.env['APIKEY'] ?? '',
+              'number': contactNumber,
+              'message': message,
+              'sendername': dotenv.env['SENDERNAME'] ?? 'Unistock',
+            }),
+          );
+
+          if (response.statusCode == 200) {
+            print("SMS sent successfully to $contactNumber");
+          } else {
+            print("Failed to send SMS: ${response.body}");
+          }
+        } else {
+          print("Contact number is not available for studentId: $studentId and name: $studentName");
+        }
+      } else {
+        print("User document does not exist for studentId: $studentId and name: $studentName");
+      }
+    } catch (e) {
+      print("Error sending SMS: $e");
+    }
+  }
+
   Future<void> _submitOrder() async {
     if (!_formKey.currentState!.validate()) {
       return;
@@ -548,6 +607,8 @@ class _MainWalkInPageState extends State<WalkinPage> {
 
     try {
       List<Map<String, dynamic>> cartItems = [];
+      double totalAmount = 0.0;
+
       for (String item in _selectedQuantities.keys) {
         int quantity = _selectedQuantities[item] ?? 0;
         String? size = _selectedSizes[item];
@@ -566,7 +627,7 @@ class _MainWalkInPageState extends State<WalkinPage> {
             category = 'Merch & Accessories';
           }
 
-          String documentId = _findDocumentIdForItem(item);  // Ensure you have this method implemented
+          String documentId = _findDocumentIdForItem(item);
 
           if (documentId == null) {
             print("Warning: Document ID not found for item $item");
@@ -574,7 +635,9 @@ class _MainWalkInPageState extends State<WalkinPage> {
           }
 
           double itemPrice = _getItemPrice(category, item, courseLabel, size);
-          double total = itemPrice * quantity;  // Calculate the total
+          double total = itemPrice * quantity;
+
+          totalAmount += total;
 
           Map<String, dynamic> itemData = {
             'itemLabel': item,
@@ -582,7 +645,7 @@ class _MainWalkInPageState extends State<WalkinPage> {
             'quantity': quantity,
             'category': category,
             'courseLabel': courseLabel,
-            'total': total,  // Include total in the item data
+            'total': total,
           };
 
           cartItems.add(itemData);
@@ -596,7 +659,7 @@ class _MainWalkInPageState extends State<WalkinPage> {
             'name': studentName,
             'pricePerPiece': itemPrice,
             'quantity': quantity,
-            'total': total,  // Store the total price in Firestore
+            'total': total,
             'reservationDate': FieldValue.serverTimestamp(),
             'approvalDate': FieldValue.serverTimestamp(),
           });
@@ -612,7 +675,9 @@ class _MainWalkInPageState extends State<WalkinPage> {
         'timestamp': FieldValue.serverTimestamp(),
       });
 
-      Get.snackbar('Success', 'Order submitted successfully!');
+      await _sendSMSToUser(studentNumber, studentName, totalAmount, cartItems);
+
+      Get.snackbar('Success', 'Order submitted and SMS sent successfully!');
       _refreshData();
 
     } catch (e) {
@@ -752,7 +817,6 @@ class _MainWalkInPageState extends State<WalkinPage> {
       int quantity = item['quantity'];
       double pricePerPiece = 0.0;
 
-      // Determine the price per piece based on the category and the selected item
       if (itemCategory == 'senior_high_items') {
         pricePerPiece = _seniorHighStockQuantities[itemLabel]?['sizes']?[item['itemSize']]?['price'] ?? 0.0;
       } else if (itemCategory == 'college_items' && courseLabel != null) {
@@ -761,14 +825,14 @@ class _MainWalkInPageState extends State<WalkinPage> {
         pricePerPiece = _merchStockQuantities[itemLabel]?['sizes']?[item['itemSize']]?['price'] ?? 0.0;
       }
 
-      double total = pricePerPiece * quantity; // Calculate total price
+      double total = pricePerPiece * quantity; 
 
       return {
         'itemLabel': itemLabel,
         'itemSize': item['itemSize'],
         'quantity': quantity,
         'pricePerPiece': pricePerPiece,
-        'total': total,  // Changed from totalPrice to total as per your request
+        'total': total,  
         'courseLabel': courseLabel,
       };
     }).toList();
@@ -780,7 +844,6 @@ class _MainWalkInPageState extends State<WalkinPage> {
         .doc(userId)
         .collection('notifications');
 
-    // Add the notification document to Firestore
     await notificationsRef.add({
       'title': 'Order Placed',
       'message': notificationMessage,

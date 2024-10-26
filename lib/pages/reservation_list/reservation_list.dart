@@ -35,6 +35,7 @@ class _ReservationListPageState extends State<ReservationListPage> {
       isLoading = true;
     });
 
+    // Fetch all users from Firestore
     QuerySnapshot usersSnapshot = await _firestore.collection('users').get();
 
     for (var userDoc in usersSnapshot.docs) {
@@ -43,6 +44,7 @@ class _ReservationListPageState extends State<ReservationListPage> {
           ? userDoc['studentId']
           : 'Unknown ID';
 
+      // Fetch all pending orders for the current user
       QuerySnapshot ordersSnapshot = await _firestore
           .collection('users')
           .doc(userDoc.id)
@@ -53,15 +55,16 @@ class _ReservationListPageState extends State<ReservationListPage> {
       for (var orderDoc in ordersSnapshot.docs) {
         Map<String, dynamic> reservationData = orderDoc.data() as Map<String, dynamic>;
 
+        // Add additional information to the reservation data
         reservationData['orderId'] = orderDoc.id;
         reservationData['userName'] = userName;
         reservationData['studentId'] = studentId;
         reservationData['userId'] = userDoc.id;
         reservationData['category'] = reservationData['category'] ?? 'Unknown Category';
         reservationData['label'] = reservationData['label'] ?? 'No Label';
-        reservationData['itemSize'] = reservationData['itemSize'] ?? 'Unknown Size';
         reservationData['courseLabel'] = reservationData['courseLabel'] ?? 'Unknown Course';
 
+        // Check if there are items within the order
         if (reservationData.containsKey('items') && reservationData['items'] is List) {
           List<dynamic> orderItems = reservationData['items'];
 
@@ -69,23 +72,42 @@ class _ReservationListPageState extends State<ReservationListPage> {
           for (var item in orderItems) {
             int itemQuantity = item['quantity'] ?? 1;
             double itemPrice = item['price'] ?? 0.0;
+            String itemSize = item['itemSize'] ?? 'Unknown Size';
+
             double itemTotalPrice = itemQuantity * itemPrice;
             item['totalPrice'] = itemTotalPrice.toStringAsFixed(2);
+            item['pricePerPiece'] = itemPrice; // Explicitly add price per piece
+            item['size'] = itemSize; // Explicitly add item size
 
             totalOrderPrice += itemTotalPrice;
           }
 
           reservationData['totalOrderPrice'] = totalOrderPrice.toStringAsFixed(2);
         } else {
+          // Handle cases where there's no 'items' list (single-item orders)
           int quantity = reservationData['quantity'] ?? 1;
           double pricePerPiece = reservationData['price'] ?? 0.0;
+          String itemSize = reservationData['itemSize'] ?? 'Unknown Size'; // Get size for single item
+
           double totalPrice = quantity * pricePerPiece;
+
           reservationData['totalPrice'] = totalPrice.toStringAsFixed(2);
+          reservationData['pricePerPiece'] = pricePerPiece; // Ensure price per piece is added
+          reservationData['size'] = itemSize; // Explicitly set item size for single item
+
+          reservationData['quantity'] = quantity;
+
+          reservationData['label'] = reservationData['label'];
+          reservationData['courseLabel'] = reservationData['courseLabel'];
+          reservationData['category'] = reservationData['category'];
         }
+
+        // Add the processed reservation to the pending reservations list
         pendingReservations.add(reservationData);
       }
     }
 
+    // Sort the reservations by order date in descending order
     pendingReservations.sort((a, b) {
       Timestamp aTimestamp = a['orderDate'] != null && a['orderDate'] is Timestamp
           ? a['orderDate']
@@ -96,6 +118,7 @@ class _ReservationListPageState extends State<ReservationListPage> {
       return bTimestamp.compareTo(aTimestamp);
     });
 
+    // Update the state with the processed reservations
     setState(() {
       allPendingReservations = pendingReservations;
       isLoading = false;
@@ -211,7 +234,6 @@ class _ReservationListPageState extends State<ReservationListPage> {
         for (var item in orderItems) {
           int quantity = item['quantity'] ?? 1;
           double price = item['price'] ?? 0.0;
-
           double pricePerPiece = price / quantity;
           double totalPrice = pricePerPiece * quantity;
 
@@ -226,7 +248,6 @@ class _ReservationListPageState extends State<ReservationListPage> {
       } else {
         int quantity = reservation['quantity'] ?? 1;
         double price = reservation['price'] ?? 0.0;
-
         double pricePerPiece = price / quantity;
         double totalPrice = pricePerPiece * quantity;
 
@@ -241,12 +262,11 @@ class _ReservationListPageState extends State<ReservationListPage> {
 
       String notificationMessage;
       if (orderSummary.length > 1) {
-        notificationMessage =
-        'Your bulk reservation (${orderSummary.length} items) has been approved.';
+        notificationMessage = 'Your bulk reservation (${orderSummary.length} items) has been approved.';
       } else {
-        notificationMessage =
-        'Your reservation for ${orderSummary[0]['label']} (${orderSummary[0]['itemSize']}) has been approved.';
+        notificationMessage = 'Your reservation for ${orderSummary[0]['label']} (${orderSummary[0]['itemSize']}) has been approved.';
       }
+
       CollectionReference notificationsRef = FirebaseFirestore.instance
           .collection('users')
           .doc(userId)
@@ -276,15 +296,13 @@ class _ReservationListPageState extends State<ReservationListPage> {
           IconButton(
             icon: Icon(Icons.refresh),
             onPressed: () {
-              _fetchAllPendingReservations(); // Refresh data when the button is pressed
+              _fetchAllPendingReservations();
             },
           ),
         ],
       ),
       body: isLoading
-          ? Center(
-        child: CircularProgressIndicator(),
-      )
+          ? Center(child: CircularProgressIndicator())
           : Scrollbar(
         controller: _verticalController,
         thumbVisibility: true,
@@ -320,6 +338,45 @@ class _ReservationListPageState extends State<ReservationListPage> {
                     final List orderItems = reservation['items'] ?? [];
                     bool isExpanded = expandedBulkOrders.contains(reservation['orderId']);
 
+                    if (orderItems.isEmpty) {
+                      // Handle single-item orders directly
+                      int quantity = reservation['quantity'] ?? 1;
+                      double pricePerPiece = reservation['pricePerPiece'] ?? reservation['price'] ?? 0.0;
+                      double totalPrice = double.tryParse(reservation['totalPrice']) ?? 0.0;
+                      String size = reservation['size'] ?? reservation['itemSize'] ?? 'No Size';
+                      String label = reservation['label'] ?? 'No Label';
+
+                      return [
+                        DataRow(
+                          key: ValueKey(reservation['orderId']),
+                          cells: [
+                            DataCell(Text(reservation['userName'] ?? 'Unknown User')),
+                            DataCell(Text(reservation['studentId'] ?? 'Unknown ID')),
+                            DataCell(Text(label)),
+                            DataCell(Text(size)), // Display Size
+                            DataCell(Text('$quantity')),
+                            DataCell(Text('₱${pricePerPiece.toStringAsFixed(2)}')), // Display Price per Piece
+                            DataCell(Text('₱${totalPrice.toStringAsFixed(2)}')),
+                            DataCell(Text(
+                              reservation['orderDate'] != null && reservation['orderDate'] is Timestamp
+                                  ? DateFormat('yyyy-MM-dd HH:mm:ss').format(
+                                (reservation['orderDate'] as Timestamp).toDate(),
+                              )
+                                  : 'No Date Provided',
+                            )),
+                            DataCell(
+                              ElevatedButton(
+                                onPressed: () {
+                                  _approveReservation(reservation);
+                                },
+                                child: Text('Approve'),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ];
+                    }
+                    // Existing logic for handling bulk orders
                     double totalQuantity = orderItems.fold<double>(0, (sum, item) => sum + (item['quantity'] ?? 1));
                     double totalPrice = orderItems.fold<double>(
                         0, (sum, item) => sum + ((item['quantity'] ?? 1) * (item['price'] ?? 0.0)));
@@ -394,7 +451,6 @@ class _ReservationListPageState extends State<ReservationListPage> {
                         );
                       }).toList());
                     }
-
                     return rows;
                   }).toList(),
                 ),
