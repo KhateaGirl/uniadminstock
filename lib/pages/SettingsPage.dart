@@ -1,9 +1,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
-import 'package:get/get.dart';
 import 'dart:typed_data';
 import 'package:image_picker/image_picker.dart';
 
@@ -41,11 +39,14 @@ class _SettingsPageState extends State<SettingsPage> {
   List<String> _categories = ["senior_high_items", "college_items"];
   List<String> _courseLabels = ["BACOMM", "HRM & Culinary", "IT&CPE", "Tourism"];
 
+  final FirebaseFirestore firestore = FirebaseFirestore.instance;
+
   @override
   void initState() {
     super.initState();
   }
 
+  // Update admin credentials
   Future<void> updateAdminCredentials() async {
     setState(() {
       _isLoading = true;
@@ -77,32 +78,22 @@ class _SettingsPageState extends State<SettingsPage> {
     });
   }
 
+  // Pick image for announcement or item
   Future<void> _pickImage({bool forAnnouncement = true}) async {
     final pickedFile = await picker.pickImage(
       source: ImageSource.gallery,
       imageQuality: 50,
     );
     if (pickedFile != null) {
-      if (kIsWeb) {
-        Uint8List webFileBytes = await pickedFile.readAsBytes();
-        setState(() {
-          if (forAnnouncement) {
-            _webImage = webFileBytes;
-          } else {
-            _webItemImage = webFileBytes;
-          }
-          _uploadStatus = "Image selected.";
-        });
-      } else {
-        setState(() {
-          if (forAnnouncement) {
-            _selectedImageFile = File(pickedFile.path);
-          } else {
-            _selectedItemImageFile = File(pickedFile.path);
-          }
-          _uploadStatus = "Image selected.";
-        });
-      }
+      Uint8List webFileBytes = await pickedFile.readAsBytes();
+      setState(() {
+        if (forAnnouncement) {
+          _webImage = webFileBytes;
+        } else {
+          _webItemImage = webFileBytes;
+        }
+        _uploadStatus = "Image selected.";
+      });
     } else {
       setState(() {
         _uploadStatus = "No image selected.";
@@ -110,38 +101,20 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
+  // Upload image to Firebase Storage
   Future<String> _uploadImageToStorage(String documentId, {bool forAnnouncement = true}) async {
     try {
       Uint8List? imageBytes = forAnnouncement ? _webImage : _webItemImage;
-      File? imageFile = forAnnouncement ? _selectedImageFile : _selectedItemImageFile;
 
-      // Determine the correct storage path based on `courseLabel`
-      String storagePath;
-      if (forAnnouncement) {
-        storagePath = 'admin_images/$documentId/${DateTime.now().millisecondsSinceEpoch}';
-      } else {
-        // Define the folder path based on the selected course label or general path
-        String courseLabelPath = _selectedCourseLabel ?? "General";
-        storagePath = 'items/$courseLabelPath/${DateTime.now().millisecondsSinceEpoch}';
-      }
+      // Define the folder path based on the selected course label or general path
+      String storagePath = forAnnouncement
+          ? 'admin_images/$documentId/${DateTime.now().millisecondsSinceEpoch}'
+          : 'items/${_selectedCourseLabel ?? "General"}/${DateTime.now().millisecondsSinceEpoch}';
 
-      if (kIsWeb && imageBytes != null) {
+      if (imageBytes != null) {
         Reference storageRef = FirebaseStorage.instance.ref().child(storagePath);
 
         UploadTask uploadTask = storageRef.putData(imageBytes);
-        uploadTask.snapshotEvents.listen((TaskSnapshot snapshot) {
-          setState(() {
-            _uploadProgress = snapshot.bytesTransferred / snapshot.totalBytes;
-            _uploadStatus = "Uploading... ${(_uploadProgress * 100).toStringAsFixed(2)}%";
-          });
-        });
-
-        TaskSnapshot taskSnapshot = await uploadTask;
-        return await taskSnapshot.ref.getDownloadURL();
-      } else if (imageFile != null) {
-        Reference storageRef = FirebaseStorage.instance.ref().child(storagePath);
-
-        UploadTask uploadTask = storageRef.putFile(imageFile);
         uploadTask.snapshotEvents.listen((TaskSnapshot snapshot) {
           setState(() {
             _uploadProgress = snapshot.bytesTransferred / snapshot.totalBytes;
@@ -160,27 +133,52 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
-  Future<void> addNewItemToInventory() async {
-    if (_formKeyInventory.currentState?.validate() == true) {
-      try {
-        String label = _itemLabelController.text;
-        double price = double.parse(_itemPriceController.text);
-        String size = _itemSizeController.text;
-        int quantity = int.parse(_itemQuantityController.text);
+  // Add or Update item
+  Future<void> addOrUpdateItem() async {
+    if (!_formKeyInventory.currentState!.validate()) return;
 
-        String category = _selectedItemCategory ?? "senior_high_items";
-        String courseLabel = _selectedCourseLabel ?? "General";
-        String documentPath;
+    String label = _itemLabelController.text;
+    double price = double.parse(_itemPriceController.text);
+    String size = _itemSizeController.text;
+    int quantity = int.parse(_itemQuantityController.text);
+    String category = _selectedItemCategory ?? "senior_high_items";
+    String courseLabel = _selectedCourseLabel ?? "General";
 
-        if (category == "college_items" && courseLabel.isNotEmpty) {
-          documentPath = "Inventory_stock/$category/$courseLabel";
-        } else {
-          documentPath = "Inventory_stock/$category/Items";
-        }
+    String collectionPath = category == "college_items"
+        ? "Inventory_stock/$category/$courseLabel"
+        : "Inventory_stock/$category/Items";
 
-        String imageUrl = await _uploadImageToStorage("", forAnnouncement: false);
+    try {
+      QuerySnapshot querySnapshot = await firestore
+          .collection(collectionPath)
+          .where('label', isEqualTo: label)
+          .get();
 
-        Map<String, dynamic> itemData = {
+      if (querySnapshot.docs.isNotEmpty) {
+        DocumentSnapshot existingItem = querySnapshot.docs.first;
+        String documentId = existingItem.id;
+
+        String imageUrl = _selectedItemImageFile != null || _webItemImage != null
+            ? await _uploadImageToStorage(documentId, forAnnouncement: false)
+            : existingItem['imagePath'];
+
+        await existingItem.reference.update({
+          'price': price,
+          'sizes.$size': {
+            'quantity': quantity,
+            'price': price,
+          },
+          'imagePath': imageUrl,
+        });
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Item updated successfully!")),
+        );
+      } else {
+        String documentId = firestore.collection(collectionPath).doc().id;
+        String imageUrl = await _uploadImageToStorage(documentId, forAnnouncement: false);
+
+        await firestore.collection(collectionPath).doc(documentId).set({
           'label': label,
           'price': price,
           'sizes': {
@@ -190,39 +188,63 @@ class _SettingsPageState extends State<SettingsPage> {
             }
           },
           'imagePath': imageUrl,
-        };
-
-        await FirebaseFirestore.instance.collection(documentPath).add(itemData);
+        });
 
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Item added to inventory successfully!")),
-        );
-
-        _itemLabelController.clear();
-        _itemPriceController.clear();
-        _itemSizeController.clear();
-        _itemQuantityController.clear();
-        _selectedItemCategory = null;
-        _selectedCourseLabel = null;
-      } catch (e) {
-        print("Error adding item to inventory: $e");
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Failed to add item to inventory: $e")),
+          SnackBar(content: Text("Item added successfully!")),
         );
       }
+
+      _itemLabelController.clear();
+      _itemPriceController.clear();
+      _itemSizeController.clear();
+      _itemQuantityController.clear();
+      _selectedItemCategory = null;
+      _selectedCourseLabel = null;
+    } catch (e) {
+      print("Error adding/updating item: $e");
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Failed to add/update item: $e")),
+      );
     }
   }
 
-  void _refreshUIAfterUpload() {
-    setState(() {
-      _selectedImageFile = null;
-      _selectedItemImageFile = null;
-      _webImage = null;
-      _webItemImage = null;
-      _selectedAnnouncement = null;
-      _uploadStatus = "";
-      _uploadProgress = 0.0;
-    });
+  // Delete item
+  Future<void> deleteItem() async {
+    String label = _itemLabelController.text;
+    String category = _selectedItemCategory ?? "senior_high_items";
+    String courseLabel = _selectedCourseLabel ?? "General";
+
+    String collectionPath = category == "college_items"
+        ? "Inventory_stock/$category/$courseLabel"
+        : "Inventory_stock/$category/Items";
+
+    try {
+      QuerySnapshot querySnapshot = await firestore
+          .collection(collectionPath)
+          .where('label', isEqualTo: label)
+          .get();
+
+      if (querySnapshot.docs.isNotEmpty) {
+        DocumentSnapshot itemToDelete = querySnapshot.docs.first;
+        await itemToDelete.reference.delete();
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Item deleted successfully!")),
+        );
+
+        _itemLabelController.clear();
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Item not found.")),
+        );
+      }
+    } catch (e) {
+      print("Error deleting item: $e");
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Failed to delete item: $e")),
+      );
+    }
   }
 
   @override
@@ -288,15 +310,14 @@ class _SettingsPageState extends State<SettingsPage> {
                 onPressed: () => _pickImage(forAnnouncement: true),
               ),
               if (_webImage != null) Image.memory(_webImage!, height: 150),
-              if (_selectedImageFile != null) Image.file(_selectedImageFile!, height: 150),
-              if (_uploadProgress > 0) LinearProgressIndicator(value: _uploadProgress),
+              SizedBox(height: 10),
               ElevatedButton.icon(
                 icon: Icon(Icons.cloud_upload),
                 label: Text(_isLoading ? 'Uploading...' : 'Upload Image'),
-                onPressed: _isLoading ? null : () => _uploadImageToStorage(""),
+                onPressed: _isLoading ? null : () => _uploadImageToStorage("announcement", forAnnouncement: true),
               ),
               Divider(thickness: 2),
-              Text('Add New Item to Inventory', style: TextStyle(fontWeight: FontWeight.bold)),
+              Text('Add or Update Item', style: TextStyle(fontWeight: FontWeight.bold)),
               Form(
                 key: _formKeyInventory,
                 child: Column(
@@ -306,27 +327,27 @@ class _SettingsPageState extends State<SettingsPage> {
                       decoration: InputDecoration(labelText: 'Item Label'),
                       validator: (value) => value == null || value.isEmpty ? 'Please enter an item label' : null,
                     ),
-                    SizedBox(height: 20), // Added spacing
+                    SizedBox(height: 20),
                     TextFormField(
                       controller: _itemPriceController,
                       decoration: InputDecoration(labelText: 'Item Price'),
                       keyboardType: TextInputType.number,
                       validator: (value) => value == null || value.isEmpty ? 'Please enter a price' : null,
                     ),
-                    SizedBox(height: 20), // Added spacing
+                    SizedBox(height: 20),
                     TextFormField(
                       controller: _itemSizeController,
                       decoration: InputDecoration(labelText: 'Item Size'),
                       validator: (value) => value == null || value.isEmpty ? 'Please enter a size' : null,
                     ),
-                    SizedBox(height: 20), // Added spacing
+                    SizedBox(height: 20),
                     TextFormField(
                       controller: _itemQuantityController,
                       decoration: InputDecoration(labelText: 'Item Quantity'),
                       keyboardType: TextInputType.number,
                       validator: (value) => value == null || value.isEmpty ? 'Please enter a quantity' : null,
                     ),
-                    SizedBox(height: 20), // Added spacing
+                    SizedBox(height: 20),
                     DropdownButtonFormField<String>(
                       decoration: InputDecoration(labelText: 'Select Category', border: OutlineInputBorder()),
                       value: _selectedItemCategory,
@@ -340,7 +361,7 @@ class _SettingsPageState extends State<SettingsPage> {
                         });
                       },
                     ),
-                    SizedBox(height: 20), // Added spacing
+                    SizedBox(height: 20),
                     if (_selectedItemCategory == "college_items")
                       DropdownButtonFormField<String>(
                         decoration: InputDecoration(labelText: 'Select Course Label', border: OutlineInputBorder()),
@@ -354,21 +375,27 @@ class _SettingsPageState extends State<SettingsPage> {
                           });
                         },
                       ),
-                    if (_selectedItemCategory == "college_items") SizedBox(height: 20), // Added spacing
+                    if (_selectedItemCategory == "college_items") SizedBox(height: 20),
                     ElevatedButton.icon(
                       icon: Icon(Icons.attach_file),
                       label: Text('Select Image for Item'),
                       onPressed: () => _pickImage(forAnnouncement: false),
                     ),
-                    SizedBox(height: 20), // Added spacing
+                    SizedBox(height: 20),
                     ElevatedButton.icon(
                       icon: Icon(Icons.add),
-                      label: Text('Add Item'),
-                      onPressed: addNewItemToInventory,
+                      label: Text('Add or Update Item'),
+                      onPressed: addOrUpdateItem,
+                    ),
+                    SizedBox(height: 10),
+                    ElevatedButton.icon(
+                      icon: Icon(Icons.delete),
+                      label: Text('Delete Item'),
+                      onPressed: deleteItem,
                     ),
                   ],
                 ),
-              )
+              ),
             ],
           ),
         ),
