@@ -233,7 +233,7 @@ class _SalesHistoryPageState extends State<SalesHistoryPage> {
                             DataColumn(label: Text('Item Size')),
                             DataColumn(label: Text('Quantity')),
                             DataColumn(label: Text('Category')),
-                            DataColumn(label: Text('Buyer Name')),
+                            DataColumn(label: Text('Student Name')),
                             DataColumn(label: Text('Student Number')),
                             DataColumn(label: Text('Order Timestamp')),
                           ],

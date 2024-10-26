@@ -132,9 +132,6 @@ class _ReservationListPageState extends State<ReservationListPage> {
       String userName = reservation['userName'] ?? 'Unknown User';
       String studentId = reservation['studentId'] ?? 'Unknown ID';
 
-      print('Approving reservation for userId: $userId, orderId: $orderId');
-      print('Reservation details: $reservation');
-
       if (userId.isEmpty || orderId.isEmpty) {
         throw Exception('Invalid reservation data: userId or orderId is missing.');
       }
@@ -151,8 +148,6 @@ class _ReservationListPageState extends State<ReservationListPage> {
       }
 
       Timestamp reservationDate = orderDoc['orderDate'] ?? Timestamp.now();
-      print('Reservation date: $reservationDate');
-
       List<dynamic> orderItems = reservation['items'] ?? [];
       if (orderItems.isEmpty) {
         throw Exception('No items found in the reservation');
@@ -166,12 +161,12 @@ class _ReservationListPageState extends State<ReservationListPage> {
         int quantity = item['quantity'] ?? 0;
         double price = item['price'] ?? 0.0;
 
-        print('Processing item:');
-        print('Label: $label, Item Size: $itemSize, Main Category: $mainCategory, SubCategory: $subCategory, Quantity: $quantity');
-
         if (label.isEmpty || mainCategory.isEmpty || subCategory.isEmpty || quantity <= 0) {
           throw Exception('Invalid item data: missing label, category, subCategory, or quantity.');
         }
+
+        // Deduct stock after adding to approved items
+        await _deductItemQuantity(mainCategory, subCategory, label, itemSize, quantity);
 
         await _firestore.collection('approved_items').add({
           'reservationDate': reservationDate,
@@ -200,11 +195,7 @@ class _ReservationListPageState extends State<ReservationListPage> {
       }
 
       await _firestore.collection('users').doc(userId).collection('orders').doc(orderId).update({'status': 'approved'});
-      print('Order status updated to approved for orderId: $orderId');
-
       await _sendNotificationToUser(userId, userName, reservation);
-      print('Notification sent to user: $userName');
-
       await _fetchAllPendingReservations();
 
       ScaffoldMessenger.of(context).showSnackBar(
@@ -222,6 +213,62 @@ class _ReservationListPageState extends State<ReservationListPage> {
           backgroundColor: Colors.red,
         ),
       );
+    }
+  }
+
+  Future<void> _deductItemQuantity(String category, String subCategory, String label, String size, int quantity) async {
+    try {
+      CollectionReference itemsRef;
+
+      // Adjust the Firestore path based on the category
+      if (category == 'senior_high_items') {
+        itemsRef = _firestore.collection('Inventory_stock').doc('senior_high_items').collection('Items');
+      } else if (category == 'college_items') {
+        itemsRef = _firestore.collection('Inventory_stock').doc('college_items').collection(subCategory);
+      } else if (category == 'Merch & Accessories') {
+        itemsRef = _firestore.collection('Inventory_stock').doc('Merch & Accessories').collection('Items');
+      } else {
+        throw Exception('Unknown category: $category');
+      }
+
+      // Debugging: Print the collection path and label for verification
+      print("Searching in collection: Inventory_stock/$category/$subCategory");
+      print("Looking for item with label: $label and size: $size");
+
+      // Query Firestore for the item by label
+      QuerySnapshot querySnapshot = await itemsRef.where('label', isEqualTo: label).limit(1).get();
+      if (querySnapshot.docs.isEmpty) {
+        throw Exception('Item not found in inventory: $label');
+      }
+
+      DocumentSnapshot itemDoc = querySnapshot.docs.first;
+      Map<String, dynamic> itemData = itemDoc.data() as Map<String, dynamic>;
+
+      // Check if the `sizes` field exists and contains the specified size
+      if (itemData.containsKey('sizes') && itemData['sizes'] is Map && itemData['sizes'][size] != null) {
+        int currentStock = itemData['sizes'][size]['quantity'] ?? 0;
+
+        // Ensure there is enough stock to deduct
+        if (currentStock >= quantity) {
+          // Deduct the quantity
+          itemData['sizes'][size]['quantity'] = currentStock - quantity;
+          await itemsRef.doc(itemDoc.id).update({'sizes': itemData['sizes']});
+
+          // Fetch and print updated stock to verify the deduction
+          DocumentSnapshot updatedItemDoc = await itemsRef.doc(itemDoc.id).get();
+          Map<String, dynamic> updatedItemData = updatedItemDoc.data() as Map<String, dynamic>;
+          int updatedStock = updatedItemData['sizes'][size]['quantity'] ?? 0;
+
+          print("Updated stock for $label (Size: $size) after deduction: $updatedStock");
+        } else {
+          throw Exception('Insufficient stock for $label size $size. Current stock: $currentStock, required: $quantity');
+        }
+      } else {
+        throw Exception('Size $size not available for item $label');
+      }
+    } catch (e) {
+      print('Error in _deductItemQuantity: $e');
+      throw Exception('Failed to deduct stock: $e');
     }
   }
 

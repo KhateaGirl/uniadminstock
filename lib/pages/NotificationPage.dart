@@ -34,8 +34,9 @@ class _AdminNotificationPageState extends State<AdminNotificationPage> {
 
           List<QueryDocumentSnapshot> notifications = snapshot.data!.docs;
 
-          return ListView.builder(
+          return ListView.separated(
             itemCount: notifications.length,
+            separatorBuilder: (context, index) => Divider(thickness: 1, color: Colors.grey), // Divider between each item
             itemBuilder: (context, index) {
               Map<String, dynamic> notificationData = notifications[index].data() as Map<String, dynamic>;
 
