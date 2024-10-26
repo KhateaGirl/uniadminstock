@@ -14,6 +14,7 @@ class _MainWalkInPageState extends State<WalkinPage> {
   final _formKey = GlobalKey<FormState>();
   final TextEditingController _nameController = TextEditingController();
   final TextEditingController _studentNumberController = TextEditingController();
+  final TextEditingController _contactNumberController = TextEditingController();
   final Map<String, String?> _selectedSizes = {};
   final Map<String, int> _selectedQuantities = {};
   String? _selectedCategory;
@@ -245,13 +246,19 @@ class _MainWalkInPageState extends State<WalkinPage> {
               _buildTextFormField(
                 controller: _nameController,
                 label: 'Student Name',
-                validator: 'Please enter the student name',
+                validator: '',
               ),
               SizedBox(height: 16),
               _buildTextFormField(
                 controller: _studentNumberController,
                 label: 'Student Number',
-                validator: 'Please enter the student number',
+                validator: '',
+              ),
+              SizedBox(height: 16),
+              _buildTextFormField(
+                controller: _contactNumberController,
+                label: 'Contact Number',
+                validator: '',
               ),
               SizedBox(height: 32),
               DropdownButtonFormField<String>(
@@ -534,56 +541,32 @@ class _MainWalkInPageState extends State<WalkinPage> {
     );
   }
 
-  Future<void> _sendSMSToUser(String studentId, String studentName, double totalAmount, List<Map<String, dynamic>> cartItems) async {
+  Future<void> _sendSMSToUser(String contactNumber, String studentName, String studentNumber, double totalAmount, List<Map<String, dynamic>> cartItems) async {
     try {
-      // Retrieve the user document by studentId and name
-      QuerySnapshot querySnapshot = await FirebaseFirestore.instance
-          .collection('users')
-          .where('studentId', isEqualTo: studentId)
-          .where('name', isEqualTo: studentName)
-          .limit(1)
-          .get();
+      String message = "Hello $studentName (Student ID: $studentNumber), your order has been placed successfully. Total amount: ₱$totalAmount. Items: ";
 
-      if (querySnapshot.docs.isNotEmpty) {
-        DocumentSnapshot userSnapshot = querySnapshot.docs.first;
+      for (var item in cartItems) {
+        message += "${item['itemLabel']} (x${item['quantity']}), ";
+      }
+      message = message.trimRight().replaceAll(RegExp(r',\s*$'), '');
 
-        // Extract contact number from user document
-        String? contactNumber = (userSnapshot.data() as Map<String, dynamic>)['contactNumber'];
+      final response = await http.post(
+        Uri.parse('http://localhost:3000/send-sms'),
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode({
+          'apikey': dotenv.env['APIKEY'] ?? '',
+          'number': contactNumber,
+          'message': message,
+          'sendername': dotenv.env['SENDERNAME'] ?? 'Unistock',
+        }),
+      );
 
-        if (contactNumber != null && contactNumber.isNotEmpty) {
-          // Construct the SMS message
-          String message = "Hello $studentName with student ID $studentId, your order has been placed successfully. Total amount: ₱$totalAmount. Items: ";
-
-          // Append cart items to the message
-          for (var item in cartItems) {
-            message += "${item['itemLabel']} (x${item['quantity']}), ";
-          }
-          message = message.trimRight().replaceAll(RegExp(r',\s*$'), '');
-
-          // Send SMS request to your server
-          final response = await http.post(
-            Uri.parse('http://localhost:3000/send-sms'),
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: jsonEncode({
-              'apikey': dotenv.env['APIKEY'] ?? '',
-              'number': contactNumber,
-              'message': message,
-              'sendername': dotenv.env['SENDERNAME'] ?? 'Unistock',
-            }),
-          );
-
-          if (response.statusCode == 200) {
-            print("SMS sent successfully to $contactNumber");
-          } else {
-            print("Failed to send SMS: ${response.body}");
-          }
-        } else {
-          print("Contact number is not available for studentId: $studentId and name: $studentName");
-        }
+      if (response.statusCode == 200) {
+        print("SMS sent successfully to $contactNumber");
       } else {
-        print("User document does not exist for studentId: $studentId and name: $studentName");
+        print("Failed to send SMS: ${response.body}");
       }
     } catch (e) {
       print("Error sending SMS: $e");
@@ -604,6 +587,7 @@ class _MainWalkInPageState extends State<WalkinPage> {
 
     String studentName = _nameController.text;
     String studentNumber = _studentNumberController.text;
+    String contactNumber = _contactNumberController.text;
 
     try {
       List<Map<String, dynamic>> cartItems = [];
@@ -675,7 +659,7 @@ class _MainWalkInPageState extends State<WalkinPage> {
         'timestamp': FieldValue.serverTimestamp(),
       });
 
-      await _sendSMSToUser(studentNumber, studentName, totalAmount, cartItems);
+      await _sendSMSToUser(contactNumber, studentName, studentNumber, totalAmount, cartItems);
 
       Get.snackbar('Success', 'Order submitted and SMS sent successfully!');
       _refreshData();
@@ -825,14 +809,14 @@ class _MainWalkInPageState extends State<WalkinPage> {
         pricePerPiece = _merchStockQuantities[itemLabel]?['sizes']?[item['itemSize']]?['price'] ?? 0.0;
       }
 
-      double total = pricePerPiece * quantity; 
+      double total = pricePerPiece * quantity;
 
       return {
         'itemLabel': itemLabel,
         'itemSize': item['itemSize'],
         'quantity': quantity,
         'pricePerPiece': pricePerPiece,
-        'total': total,  
+        'total': total,
         'courseLabel': courseLabel,
       };
     }).toList();
