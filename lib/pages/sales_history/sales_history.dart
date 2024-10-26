@@ -2,6 +2,9 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:unistock/widgets/custom_text.dart';
 import 'package:intl/intl.dart';
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
 
 class SalesHistoryPage extends StatefulWidget {
   @override
@@ -18,6 +21,58 @@ class _SalesHistoryPageState extends State<SalesHistoryPage> {
   String _formatDate(Timestamp timestamp) {
     DateTime date = timestamp.toDate();
     return DateFormat('yyyy-MM-dd HH:mm:ss').format(date);
+  }
+
+  // Function to generate PDF
+  Future<void> _generatePDF(List<Map<String, dynamic>> salesData) async {
+    final pdf = pw.Document();
+    pdf.addPage(
+      pw.Page(
+        build: (pw.Context context) {
+          return pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              pw.Text('Sales History', style: pw.TextStyle(fontSize: 24, fontWeight: pw.FontWeight.bold)),
+              pw.SizedBox(height: 16),
+              pw.Table(
+                border: pw.TableBorder.all(color: PdfColors.black, width: 1),
+                children: [
+                  pw.TableRow(
+                    children: [
+                      pw.Text('Item Label', style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
+                      pw.Text('Item Size', style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
+                      pw.Text('Quantity', style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
+                      pw.Text('Category', style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
+                      pw.Text('Student Name', style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
+                      pw.Text('Student Number', style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
+                      pw.Text('Order Timestamp', style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
+                    ],
+                  ),
+                  ...salesData.map((saleItem) {
+                    return pw.TableRow(
+                      children: [
+                        pw.Text(saleItem['itemLabel'] ?? 'N/A'),
+                        pw.Text(saleItem['itemSize'] ?? 'N/A'),
+                        pw.Text(saleItem['quantity'].toString()),
+                        pw.Text(saleItem['category'] ?? 'N/A'),
+                        pw.Text(saleItem['userName'] ?? 'N/A'),
+                        pw.Text(saleItem['studentNumber'] ?? 'N/A'),
+                        pw.Text(_formatDate(saleItem['timestamp'] as Timestamp)),
+                      ],
+                    );
+                  }).toList(),
+                ],
+              ),
+            ],
+          );
+        },
+      ),
+    );
+
+    // Print the PDF
+    await Printing.layoutPdf(
+      onLayout: (PdfPageFormat format) async => pdf.save(),
+    );
   }
 
   @override
@@ -42,6 +97,59 @@ class _SalesHistoryPageState extends State<SalesHistoryPage> {
               setState(() {
                 // Trigger a rebuild to refresh the stream
               });
+            },
+          ),
+          IconButton(
+            icon: Icon(Icons.print),
+            onPressed: () async {
+              // Fetch the sales data and pass it to the PDF generation function
+              QuerySnapshot snapshot = await _firestore
+                  .collection('admin_transactions')
+                  .orderBy('timestamp', descending: true)
+                  .get();
+              final transactions = snapshot.docs;
+
+              List<Map<String, dynamic>> allSalesItems = [];
+
+              transactions.forEach((transactionDoc) {
+                var transactionData = transactionDoc.data() as Map<String, dynamic>;
+
+                // Process top-level sales data (if exists)
+                if (transactionData.containsKey('label') &&
+                    transactionData.containsKey('quantity')) {
+                  Map<String, dynamic> topSaleItem = {
+                    'itemLabel': transactionData['label'] ?? 'N/A',
+                    'itemSize': transactionData['itemSize'] ?? 'N/A',
+                    'quantity': transactionData['quantity'] ?? 0,
+                    'category': transactionData['category'] ?? 'N/A',
+                    'userName': transactionData['userName'] ?? 'N/A',
+                    'studentNumber': transactionData['studentNumber'] ?? 'N/A',
+                    'timestamp': transactionData['timestamp'],
+                  };
+                  allSalesItems.add(topSaleItem);
+                }
+
+                // Check and process nested cartItems if present
+                if (transactionData['cartItems'] is List) {
+                  List<dynamic> cartItems = transactionData['cartItems'];
+
+                  for (var item in cartItems) {
+                    Map<String, dynamic> saleItem = {
+                      'itemLabel': item['itemLabel'] ?? 'N/A',
+                      'itemSize': item['itemSize'] ?? 'N/A',
+                      'quantity': item['quantity'] ?? 0,
+                      'category': item['category'] ?? 'N/A',
+                      'userName': transactionData['userName'] ?? 'N/A',
+                      'studentNumber': transactionData['studentNumber'] ?? 'N/A',
+                      'timestamp': transactionData['timestamp'],
+                    };
+
+                    allSalesItems.add(saleItem);
+                  }
+                }
+              });
+
+              await _generatePDF(allSalesItems);
             },
           ),
         ],

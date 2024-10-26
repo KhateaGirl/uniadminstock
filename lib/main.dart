@@ -2,28 +2,31 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:unistock/controllers/menu_controller.dart';
 import 'package:unistock/controllers/navigation_controller.dart';
 import 'package:unistock/widgets/log_in.dart';
 
 class UserController extends GetxController {
-  var documentId = ''.obs;  // Observable variable to store the document ID
+  var documentId = ''.obs;
 
   void setDocumentId(String id) {
-    documentId.value = id;  // Update the document ID
+    documentId.value = id;
   }
 }
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
+  await dotenv.load();
+
   await Firebase.initializeApp(
       options: FirebaseOptions(
-        apiKey: "AIzaSyD2aSmLHziXSvApGm8DSUGgLj0Wig8J4DI",
-        projectId: "unistock-266e8",
-        messagingSenderId: "735169171366",
-        appId: "1:735169171366:web:9fabc735b0168d3fae0967",
-        storageBucket: "unistock-266e8.appspot.com", // Add the storage bucket here
+        apiKey: dotenv.env['FIREBASE_API_KEY'] ?? "",
+        projectId: dotenv.env['FIREBASE_PROJECT_ID'] ?? "",
+        messagingSenderId: dotenv.env['FIREBASE_MESSAGING_SENDER_ID'] ?? "",
+        appId: dotenv.env['FIREBASE_APP_ID'] ?? "",
+        storageBucket: dotenv.env['FIREBASE_STORAGE_BUCKET'] ?? "",
       )
   );
 
@@ -48,7 +51,7 @@ class MyApp extends StatelessWidget {
             TargetPlatform.android: FadeUpwardsPageTransitionsBuilder()
           }),
           primaryColor: Colors.blue),
-      home: LoginPage(),  // Starting page is the login page
+      home: LoginPage(),
     );
   }
 }

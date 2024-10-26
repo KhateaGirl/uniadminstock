@@ -306,23 +306,27 @@ class _SettingsPageState extends State<SettingsPage> {
                       decoration: InputDecoration(labelText: 'Item Label'),
                       validator: (value) => value == null || value.isEmpty ? 'Please enter an item label' : null,
                     ),
+                    SizedBox(height: 20), // Added spacing
                     TextFormField(
                       controller: _itemPriceController,
                       decoration: InputDecoration(labelText: 'Item Price'),
                       keyboardType: TextInputType.number,
                       validator: (value) => value == null || value.isEmpty ? 'Please enter a price' : null,
                     ),
+                    SizedBox(height: 20), // Added spacing
                     TextFormField(
                       controller: _itemSizeController,
                       decoration: InputDecoration(labelText: 'Item Size'),
                       validator: (value) => value == null || value.isEmpty ? 'Please enter a size' : null,
                     ),
+                    SizedBox(height: 20), // Added spacing
                     TextFormField(
                       controller: _itemQuantityController,
                       decoration: InputDecoration(labelText: 'Item Quantity'),
                       keyboardType: TextInputType.number,
                       validator: (value) => value == null || value.isEmpty ? 'Please enter a quantity' : null,
                     ),
+                    SizedBox(height: 20), // Added spacing
                     DropdownButtonFormField<String>(
                       decoration: InputDecoration(labelText: 'Select Category', border: OutlineInputBorder()),
                       value: _selectedItemCategory,
@@ -336,6 +340,7 @@ class _SettingsPageState extends State<SettingsPage> {
                         });
                       },
                     ),
+                    SizedBox(height: 20), // Added spacing
                     if (_selectedItemCategory == "college_items")
                       DropdownButtonFormField<String>(
                         decoration: InputDecoration(labelText: 'Select Course Label', border: OutlineInputBorder()),
@@ -349,13 +354,13 @@ class _SettingsPageState extends State<SettingsPage> {
                           });
                         },
                       ),
-                    SizedBox(height: 20),
+                    if (_selectedItemCategory == "college_items") SizedBox(height: 20), // Added spacing
                     ElevatedButton.icon(
                       icon: Icon(Icons.attach_file),
                       label: Text('Select Image for Item'),
                       onPressed: () => _pickImage(forAnnouncement: false),
                     ),
-                    SizedBox(height: 20),
+                    SizedBox(height: 20), // Added spacing
                     ElevatedButton.icon(
                       icon: Icon(Icons.add),
                       label: Text('Add Item'),
@@ -363,7 +368,7 @@ class _SettingsPageState extends State<SettingsPage> {
                     ),
                   ],
                 ),
-              ),
+              )
             ],
           ),
         ),

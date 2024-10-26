@@ -228,30 +228,72 @@ class _PreOrderPageState extends State<PreOrderPage> {
         controller: _verticalController,
         scrollDirection: Axis.vertical,
         child: SingleChildScrollView(
-          controller: _horizontalController,
-          scrollDirection: Axis.horizontal,
-          child: DataTable(
-            columns: [
-              DataColumn(label: Text('Order ID')),
-              DataColumn(label: Text('User Name')),
-              DataColumn(label: Text('Total Price')),
-              DataColumn(label: Text('Order Date')),
-              DataColumn(label: Text('Actions')),
-            ],
-            rows: allPendingPreOrders.map((order) {
-              return DataRow(cells: [
-                DataCell(Text(order['orderId'])),
-                DataCell(Text(order['userName'])),
-                DataCell(Text("\$${order['totalOrderPrice']}")),
-                DataCell(Text(DateFormat('yyyy-MM-dd').format(order['orderDate'].toDate()))),
-                DataCell(
-                  ElevatedButton(
-                    onPressed: () => _approvePreOrder(order),
-                    child: Text("Approve"),
-                  ),
+          controller: _verticalController,
+          scrollDirection: Axis.vertical,
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              // Calculate column widths based on available screen width
+              double totalWidth = constraints.maxWidth;
+              double orderIdWidth = totalWidth * 0.25; // Adjust proportions as needed
+              double userNameWidth = totalWidth * 0.10;
+              double totalPriceWidth = totalWidth * 0.15;
+              double orderDateWidth = totalWidth * 0.2;
+              double actionsWidth = totalWidth * 0.2;
+
+              return SingleChildScrollView(
+                controller: _horizontalController,
+                scrollDirection: Axis.horizontal,
+                child: DataTable(
+                  columnSpacing: 16.0,
+                  columns: [
+                    DataColumn(label: SizedBox(width: orderIdWidth, child: Text('Order ID', style: TextStyle(fontWeight: FontWeight.bold)))),
+                    DataColumn(label: SizedBox(width: userNameWidth, child: Text('User Name', style: TextStyle(fontWeight: FontWeight.bold)))),
+                    DataColumn(label: SizedBox(width: totalPriceWidth, child: Align(alignment: Alignment.centerRight, child: Text('Total Price', style: TextStyle(fontWeight: FontWeight.bold))))),
+                    DataColumn(label: SizedBox(width: orderDateWidth, child: Align(alignment: Alignment.centerRight, child: Text('Order Date', style: TextStyle(fontWeight: FontWeight.bold))))),
+                    DataColumn(label: SizedBox(width: actionsWidth, child: Center(child: Text('Actions', style: TextStyle(fontWeight: FontWeight.bold))))),
+                  ],
+                  rows: allPendingPreOrders.map((order) {
+                    return DataRow(cells: [
+                      DataCell(SizedBox(
+                        width: orderIdWidth,
+                        child: Text(order['orderId'], overflow: TextOverflow.ellipsis),
+                      )),
+                      DataCell(SizedBox(
+                        width: userNameWidth,
+                        child: Text(order['userName']),
+                      )),
+                      DataCell(SizedBox(
+                        width: totalPriceWidth,
+                        child: Align(
+                          alignment: Alignment.centerRight, // Align price to the right
+                          child: Text("₱${order['totalOrderPrice']}"),
+                        ),
+                      )),
+                      DataCell(SizedBox(
+                        width: orderDateWidth,
+                        child: Align(
+                          alignment: Alignment.centerRight, // Align date to the right
+                          child: Text(DateFormat('yyyy-MM-dd').format(order['orderDate'].toDate())),
+                        ),
+                      )),
+                      DataCell(SizedBox(
+                        width: actionsWidth,
+                        child: Center(
+                          child: ElevatedButton(
+                            onPressed: () => _approvePreOrder(order),
+                            child: Text("Approve"),
+                            style: ElevatedButton.styleFrom(
+                              padding: EdgeInsets.symmetric(horizontal: 16.0),
+                              textStyle: TextStyle(fontSize: 12),
+                            ),
+                          ),
+                        ),
+                      )),
+                    ]);
+                  }).toList(),
                 ),
-              ]);
-            }).toList(),
+              );
+            },
           ),
         ),
       ),
