@@ -219,73 +219,50 @@ class _SettingsPageState extends State<SettingsPage> {
     double price = double.parse(_itemPriceController.text);
     String size = _itemSizeController.text.trim();
     int quantity = int.parse(_itemQuantityController.text);
-    String category = _selectedItemCategory ?? "senior_high_items";
-    String courseLabel = _selectedCourseLabel ?? "General";
-
-    // Determine the collection path and image field name based on category
-    String collectionPath;
-    String imageFieldName;
-    if (category == "Merch & Accessories") {
-      collectionPath = "Inventory_stock/Merch & Accessories";
-      imageFieldName = "imagePath";
-    } else if (category == "college_items") {
-      collectionPath = "Inventory_stock/$category/$courseLabel";
-      imageFieldName = "imageUrl";
-    } else {
-      collectionPath = "Inventory_stock/$category/Items";
-      imageFieldName = "imagePath";
-    }
 
     try {
-      // Query Firestore for an existing item with the same label
-      QuerySnapshot querySnapshot = await firestore
-          .collection(collectionPath)
-          .where('label', isEqualTo: label)
-          .get();
+      // Access the "Merch & Accessories" document directly
+      DocumentReference documentRef = firestore
+          .collection("Inventory_stock")
+          .doc("Merch & Accessories");
 
-      DocumentReference documentRef;
-      String documentId;
+      // Query to check if the item with the specified label exists
+      DocumentSnapshot merchSnapshot = await documentRef.get();
+      Map<String, dynamic>? merchData = merchSnapshot.data() as Map<String, dynamic>?;
 
-      if (querySnapshot.docs.isNotEmpty) {
-        // Update existing item
-        DocumentSnapshot existingItem = querySnapshot.docs.first;
-        documentId = existingItem.id;
-        documentRef = existingItem.reference;
-
+      if (merchData != null && merchData.containsKey(label)) {
+        // Update the existing item if it exists
+        Map<String, dynamic> existingItem = merchData[label];
         String imageUrl = _webItemImage != null
-            ? await _uploadImageToStorage(documentId, forAnnouncement: false)
-            : existingItem[imageFieldName];
+            ? await _uploadImageToStorage(label, forAnnouncement: false)
+            : existingItem['imagePath'];
 
         await documentRef.update({
-          'price': price,
-          'sizes.$size': {
-            'quantity': quantity,
-            'price': price,
-          },
-          imageFieldName: imageUrl,
-          'category': category, // Ensure category is included in update
+          "$label.price": price,
+          "$label.sizes.$size.quantity": quantity,
+          "$label.sizes.$size.price": price,
+          "$label.imagePath": imageUrl,
         });
 
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text("Item updated successfully!")),
         );
       } else {
-        // Add new item
-        documentId = firestore.collection(collectionPath).doc().id;
-        String imageUrl = await _uploadImageToStorage(documentId, forAnnouncement: false);
+        // Add new item if it doesn't exist
+        String imageUrl = await _uploadImageToStorage(label, forAnnouncement: false);
 
-        documentRef = firestore.collection(collectionPath).doc(documentId);
-        await documentRef.set({
-          'label': label,
-          'price': price,
-          'sizes': {
-            size: {
-              'quantity': quantity,
-              'price': price,
-            }
-          },
-          imageFieldName: imageUrl,
-          'category': category, // Ensure category is included in new document
+        await documentRef.update({
+          label: {
+            'label': label,
+            'price': price,
+            'sizes': {
+              size: {
+                'quantity': quantity,
+                'price': price,
+              }
+            },
+            'imagePath': imageUrl,
+          }
         });
 
         ScaffoldMessenger.of(context).showSnackBar(
@@ -310,40 +287,28 @@ class _SettingsPageState extends State<SettingsPage> {
 
   Future<void> deleteItem() async {
     String label = _itemLabelController.text.trim();
-    String category = _selectedItemCategory ?? "senior_high_items";
-    String courseLabel = _selectedCourseLabel ?? "General";
-
-    // Set collection path based on category
-    String collectionPath;
-    if (category == "Merch & Accessories") {
-      collectionPath = "Inventory_stock/Merch & Accessories";
-    } else if (category == "college_items" && _selectedCourseLabel != null) {
-      collectionPath = "Inventory_stock/$category/$courseLabel";
-    } else if (category == "senior_high_items") {
-      collectionPath = "Inventory_stock/$category/Items";
-    } else {
-      // Handle case if category or course label is not set correctly
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Please select a valid category and course label.")),
-      );
-      return;
-    }
 
     try {
-      // Query for the document based on the label
-      QuerySnapshot querySnapshot = await firestore
-          .collection(collectionPath)
-          .where('label', isEqualTo: label)
-          .get();
+      // Reference the "Merch & Accessories" document directly
+      DocumentReference documentRef = firestore
+          .collection("Inventory_stock")
+          .doc("Merch & Accessories");
 
-      if (querySnapshot.docs.isNotEmpty) {
-        DocumentSnapshot itemToDelete = querySnapshot.docs.first;
-        await itemToDelete.reference.delete();
+      // Check if the item exists within the document
+      DocumentSnapshot merchSnapshot = await documentRef.get();
+      Map<String, dynamic>? merchData = merchSnapshot.data() as Map<String, dynamic>?;
+
+      if (merchData != null && merchData.containsKey(label)) {
+        // If the item with the given label exists, delete it
+        await documentRef.update({
+          label: FieldValue.delete(),
+        });
 
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text("Item deleted successfully!")),
         );
 
+        // Clear input fields
         _itemLabelController.clear();
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -351,7 +316,7 @@ class _SettingsPageState extends State<SettingsPage> {
         );
       }
     } catch (e) {
-      print("Error deleting item in path $collectionPath: $e");
+      print("Error deleting item: $e");
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text("Failed to delete item: $e")),
       );
