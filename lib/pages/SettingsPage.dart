@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:flutter/foundation.dart'; // Required for kIsWeb
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
@@ -23,10 +24,14 @@ class _SettingsPageState extends State<SettingsPage> {
   TextEditingController _itemQuantityController = TextEditingController();
 
   bool _isLoading = false;
-  File? _selectedImageFile;
-  File? _selectedItemImageFile;
-  Uint8List? _webImage;
-  Uint8List? _webItemImage;
+  bool _isAnnouncementImageUploading = false;
+  bool _isItemImageUploading = false;
+
+  File? _selectedImageFile; // Non-web file storage
+  File? _selectedItemImageFile; // Non-web file storage
+  Uint8List? _webImage; // Web image byte storage for announcement
+  Uint8List? _webItemImage; // Web image byte storage for item
+
   final picker = ImagePicker();
   double _uploadProgress = 0.0;
   String _uploadStatus = "";
@@ -78,22 +83,32 @@ class _SettingsPageState extends State<SettingsPage> {
     });
   }
 
-  // Pick image for announcement or item
   Future<void> _pickImage({bool forAnnouncement = true}) async {
     final pickedFile = await picker.pickImage(
       source: ImageSource.gallery,
       imageQuality: 50,
     );
     if (pickedFile != null) {
-      Uint8List webFileBytes = await pickedFile.readAsBytes();
-      setState(() {
-        if (forAnnouncement) {
-          _webImage = webFileBytes;
-        } else {
-          _webItemImage = webFileBytes;
-        }
-        _uploadStatus = "Image selected.";
-      });
+      if (kIsWeb) {
+        Uint8List webFileBytes = await pickedFile.readAsBytes();
+        setState(() {
+          if (forAnnouncement) {
+            _webImage = webFileBytes;
+          } else {
+            _webItemImage = webFileBytes;
+          }
+          _uploadStatus = "Image selected.";
+        });
+      } else {
+        setState(() {
+          if (forAnnouncement) {
+            _selectedImageFile = File(pickedFile.path);
+          } else {
+            _selectedItemImageFile = File(pickedFile.path);
+          }
+          _uploadStatus = "Image selected.";
+        });
+      }
     } else {
       setState(() {
         _uploadStatus = "No image selected.";
@@ -101,20 +116,34 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
-  // Upload image to Firebase Storage
   Future<String> _uploadImageToStorage(String documentId, {bool forAnnouncement = true}) async {
     try {
       Uint8List? imageBytes = forAnnouncement ? _webImage : _webItemImage;
 
-      // Define the folder path based on the selected course label or general path
-      String storagePath = forAnnouncement
-          ? 'admin_images/$documentId/${DateTime.now().millisecondsSinceEpoch}'
-          : 'items/${_selectedCourseLabel ?? "General"}/${DateTime.now().millisecondsSinceEpoch}';
+      String storagePath;
+      if (!forAnnouncement && _selectedItemCategory == "senior_high_items") {
+        storagePath = 'images/${documentId}_${DateTime.now().millisecondsSinceEpoch}.png';
+      } else {
+        storagePath = forAnnouncement
+            ? 'admin_images/$documentId/${DateTime.now().millisecondsSinceEpoch}'
+            : 'items/${_selectedCourseLabel ?? "General"}/${DateTime.now().millisecondsSinceEpoch}';
+      }
 
       if (imageBytes != null) {
         Reference storageRef = FirebaseStorage.instance.ref().child(storagePath);
 
-        UploadTask uploadTask = storageRef.putData(imageBytes);
+        setState(() {
+          if (forAnnouncement) {
+            _isAnnouncementImageUploading = true;
+          } else {
+            _isItemImageUploading = true;
+          }
+        });
+
+        // Specify MIME type for the image
+        final metadata = SettableMetadata(contentType: 'image/jpg');
+        UploadTask uploadTask = storageRef.putData(imageBytes, metadata);
+
         uploadTask.snapshotEvents.listen((TaskSnapshot snapshot) {
           setState(() {
             _uploadProgress = snapshot.bytesTransferred / snapshot.totalBytes;
@@ -130,10 +159,15 @@ class _SettingsPageState extends State<SettingsPage> {
     } catch (e) {
       print("Error uploading image: $e");
       return '';
+    } finally {
+      setState(() {
+        _isItemImageUploading = false;
+        _isAnnouncementImageUploading = false;
+      });
     }
   }
 
-  // Add or Update item
+
   Future<void> addOrUpdateItem() async {
     if (!_formKeyInventory.currentState!.validate()) return;
 
@@ -158,7 +192,7 @@ class _SettingsPageState extends State<SettingsPage> {
         DocumentSnapshot existingItem = querySnapshot.docs.first;
         String documentId = existingItem.id;
 
-        String imageUrl = _selectedItemImageFile != null || _webItemImage != null
+        String imageUrl = _webItemImage != null
             ? await _uploadImageToStorage(documentId, forAnnouncement: false)
             : existingItem['imagePath'];
 
@@ -211,15 +245,26 @@ class _SettingsPageState extends State<SettingsPage> {
 
   // Delete item
   Future<void> deleteItem() async {
-    String label = _itemLabelController.text;
+    String label = _itemLabelController.text.trim();
     String category = _selectedItemCategory ?? "senior_high_items";
     String courseLabel = _selectedCourseLabel ?? "General";
 
-    String collectionPath = category == "college_items"
-        ? "Inventory_stock/$category/$courseLabel"
-        : "Inventory_stock/$category/Items";
+    // Set collection path based on category
+    String collectionPath;
+    if (category == "college_items" && _selectedCourseLabel != null) {
+      collectionPath = "Inventory_stock/$category/$courseLabel";
+    } else if (category == "senior_high_items") {
+      collectionPath = "Inventory_stock/$category/Items";
+    } else {
+      // Handle case if category or course label is not set correctly
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Please select a valid category and course label.")),
+      );
+      return;
+    }
 
     try {
+      // Query for the document based on the label
       QuerySnapshot querySnapshot = await firestore
           .collection(collectionPath)
           .where('label', isEqualTo: label)
@@ -236,11 +281,11 @@ class _SettingsPageState extends State<SettingsPage> {
         _itemLabelController.clear();
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Item not found.")),
+          SnackBar(content: Text("Item not found with label: $label")),
         );
       }
     } catch (e) {
-      print("Error deleting item: $e");
+      print("Error deleting item in path $collectionPath: $e");
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text("Failed to delete item: $e")),
       );
@@ -313,8 +358,8 @@ class _SettingsPageState extends State<SettingsPage> {
               SizedBox(height: 10),
               ElevatedButton.icon(
                 icon: Icon(Icons.cloud_upload),
-                label: Text(_isLoading ? 'Uploading...' : 'Upload Image'),
-                onPressed: _isLoading ? null : () => _uploadImageToStorage("announcement", forAnnouncement: true),
+                label: _isAnnouncementImageUploading ? Text('Uploading...') : Text('Upload Image'),
+                onPressed: _isAnnouncementImageUploading ? null : () => _uploadImageToStorage("announcement", forAnnouncement: true),
               ),
               Divider(thickness: 2),
               Text('Add or Update Item', style: TextStyle(fontWeight: FontWeight.bold)),
@@ -384,8 +429,8 @@ class _SettingsPageState extends State<SettingsPage> {
                     SizedBox(height: 20),
                     ElevatedButton.icon(
                       icon: Icon(Icons.add),
-                      label: Text('Add or Update Item'),
-                      onPressed: addOrUpdateItem,
+                      label: _isItemImageUploading ? Text('Uploading...') : Text('Add or Update Item'),
+                      onPressed: _isItemImageUploading ? null : addOrUpdateItem,
                     ),
                     SizedBox(height: 10),
                     ElevatedButton.icon(
