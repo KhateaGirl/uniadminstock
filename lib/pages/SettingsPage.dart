@@ -41,7 +41,7 @@ class _SettingsPageState extends State<SettingsPage> {
 
   String? _selectedItemCategory;
   String? _selectedCourseLabel;
-  List<String> _categories = ["senior_high_items", "college_items"];
+  List<String> _categories = ["senior_high_items", "college_items", "Merch & Accessories"];
   List<String> _courseLabels = ["BACOMM", "HRM & Culinary", "IT&CPE", "Tourism"];
 
   final FirebaseFirestore firestore = FirebaseFirestore.instance;
@@ -121,12 +121,17 @@ class _SettingsPageState extends State<SettingsPage> {
       Uint8List? imageBytes = forAnnouncement ? _webImage : _webItemImage;
 
       String storagePath;
-      if (!forAnnouncement && _selectedItemCategory == "senior_high_items") {
+      if (forAnnouncement) {
+        // Use exact path for the announcement
+        storagePath = 'admin_images/Announcements/ZmjXRodEmi3LOaYA10tH/${DateTime.now().millisecondsSinceEpoch}.png';
+      } else if (_selectedItemCategory == "Merch & Accessories") {
+        storagePath = 'merch_images/${documentId}_${DateTime.now().millisecondsSinceEpoch}.png';
+      } else if (_selectedItemCategory == "senior_high_items") {
         storagePath = 'images/${documentId}_${DateTime.now().millisecondsSinceEpoch}.png';
+      } else if (_selectedItemCategory == "college_items" && _selectedCourseLabel != null) {
+        storagePath = 'items/${_selectedCourseLabel}/${DateTime.now().millisecondsSinceEpoch}.png';
       } else {
-        storagePath = forAnnouncement
-            ? 'admin_images/$documentId/${DateTime.now().millisecondsSinceEpoch}'
-            : 'items/${_selectedCourseLabel ?? "General"}/${DateTime.now().millisecondsSinceEpoch}';
+        throw 'Invalid storage path configuration';
       }
 
       if (imageBytes != null) {
@@ -140,19 +145,18 @@ class _SettingsPageState extends State<SettingsPage> {
           }
         });
 
-        // Specify MIME type for the image
         final metadata = SettableMetadata(contentType: 'image/jpg');
         UploadTask uploadTask = storageRef.putData(imageBytes, metadata);
 
-        uploadTask.snapshotEvents.listen((TaskSnapshot snapshot) {
-          setState(() {
-            _uploadProgress = snapshot.bytesTransferred / snapshot.totalBytes;
-            _uploadStatus = "Uploading... ${(_uploadProgress * 100).toStringAsFixed(2)}%";
-          });
-        });
-
         TaskSnapshot taskSnapshot = await uploadTask;
-        return await taskSnapshot.ref.getDownloadURL();
+        String downloadUrl = await taskSnapshot.ref.getDownloadURL();
+
+        // If it's an announcement, update Firestore with the new image URL
+        if (forAnnouncement && _selectedAnnouncement != null) {
+          await _updateAnnouncementImageUrl(downloadUrl);
+        }
+
+        return downloadUrl;
       } else {
         throw 'No image selected';
       }
@@ -167,52 +171,111 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
+  Future<void> _updateAnnouncementImageUrl(String imageUrl) async {
+    try {
+      // First, find the document ID that matches the selected announcement label
+      final querySnapshot = await firestore
+          .collection('admin')
+          .doc('ZmjXRodEmi3LOaYA10tH')
+          .collection('announcements')
+          .where('announcement_label', isEqualTo: _selectedAnnouncement) // Assuming _selectedAnnouncement is the label
+          .get();
+
+      if (querySnapshot.docs.isNotEmpty) {
+        final announcementDocId = querySnapshot.docs.first.id;
+
+        // Now, use the document ID to update the image URL
+        final announcementDocRef = firestore
+            .collection('admin')
+            .doc('ZmjXRodEmi3LOaYA10tH')
+            .collection('announcements')
+            .doc(announcementDocId);
+
+        await announcementDocRef.update({
+          'image_url': imageUrl,
+        });
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Announcement image updated successfully!")),
+        );
+      } else {
+        print("No matching document found for label: $_selectedAnnouncement");
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Failed to find announcement document.")),
+        );
+      }
+    } catch (e) {
+      print("Error updating Firestore with image URL: $e");
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Failed to update announcement image URL.")),
+      );
+    }
+  }
 
   Future<void> addOrUpdateItem() async {
     if (!_formKeyInventory.currentState!.validate()) return;
 
-    String label = _itemLabelController.text;
+    String label = _itemLabelController.text.trim();
     double price = double.parse(_itemPriceController.text);
-    String size = _itemSizeController.text;
+    String size = _itemSizeController.text.trim();
     int quantity = int.parse(_itemQuantityController.text);
     String category = _selectedItemCategory ?? "senior_high_items";
     String courseLabel = _selectedCourseLabel ?? "General";
 
-    String collectionPath = category == "college_items"
-        ? "Inventory_stock/$category/$courseLabel"
-        : "Inventory_stock/$category/Items";
+    // Determine the collection path and image field name based on category
+    String collectionPath;
+    String imageFieldName;
+    if (category == "Merch & Accessories") {
+      collectionPath = "Inventory_stock/Merch & Accessories";
+      imageFieldName = "imagePath";
+    } else if (category == "college_items") {
+      collectionPath = "Inventory_stock/$category/$courseLabel";
+      imageFieldName = "imageUrl";
+    } else {
+      collectionPath = "Inventory_stock/$category/Items";
+      imageFieldName = "imagePath";
+    }
 
     try {
+      // Query Firestore for an existing item with the same label
       QuerySnapshot querySnapshot = await firestore
           .collection(collectionPath)
           .where('label', isEqualTo: label)
           .get();
 
+      DocumentReference documentRef;
+      String documentId;
+
       if (querySnapshot.docs.isNotEmpty) {
+        // Update existing item
         DocumentSnapshot existingItem = querySnapshot.docs.first;
-        String documentId = existingItem.id;
+        documentId = existingItem.id;
+        documentRef = existingItem.reference;
 
         String imageUrl = _webItemImage != null
             ? await _uploadImageToStorage(documentId, forAnnouncement: false)
-            : existingItem['imagePath'];
+            : existingItem[imageFieldName];
 
-        await existingItem.reference.update({
+        await documentRef.update({
           'price': price,
           'sizes.$size': {
             'quantity': quantity,
             'price': price,
           },
-          'imagePath': imageUrl,
+          imageFieldName: imageUrl,
+          'category': category, // Ensure category is included in update
         });
 
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text("Item updated successfully!")),
         );
       } else {
-        String documentId = firestore.collection(collectionPath).doc().id;
+        // Add new item
+        documentId = firestore.collection(collectionPath).doc().id;
         String imageUrl = await _uploadImageToStorage(documentId, forAnnouncement: false);
 
-        await firestore.collection(collectionPath).doc(documentId).set({
+        documentRef = firestore.collection(collectionPath).doc(documentId);
+        await documentRef.set({
           'label': label,
           'price': price,
           'sizes': {
@@ -221,7 +284,8 @@ class _SettingsPageState extends State<SettingsPage> {
               'price': price,
             }
           },
-          'imagePath': imageUrl,
+          imageFieldName: imageUrl,
+          'category': category, // Ensure category is included in new document
         });
 
         ScaffoldMessenger.of(context).showSnackBar(
@@ -229,6 +293,7 @@ class _SettingsPageState extends State<SettingsPage> {
         );
       }
 
+      // Clear input fields and reset selection
       _itemLabelController.clear();
       _itemPriceController.clear();
       _itemSizeController.clear();
@@ -243,7 +308,6 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
-  // Delete item
   Future<void> deleteItem() async {
     String label = _itemLabelController.text.trim();
     String category = _selectedItemCategory ?? "senior_high_items";
@@ -251,7 +315,9 @@ class _SettingsPageState extends State<SettingsPage> {
 
     // Set collection path based on category
     String collectionPath;
-    if (category == "college_items" && _selectedCourseLabel != null) {
+    if (category == "Merch & Accessories") {
+      collectionPath = "Inventory_stock/Merch & Accessories";
+    } else if (category == "college_items" && _selectedCourseLabel != null) {
       collectionPath = "Inventory_stock/$category/$courseLabel";
     } else if (category == "senior_high_items") {
       collectionPath = "Inventory_stock/$category/Items";

@@ -131,6 +131,7 @@ class _ReservationListPageState extends State<ReservationListPage> {
       String orderId = reservation['orderId'] ?? '';
       String userName = reservation['userName'] ?? 'Unknown User';
       String studentId = reservation['studentId'] ?? 'Unknown ID';
+      String studentName = reservation['userName'] ?? 'Unknown User'; // assuming userName as studentName
 
       if (userId.isEmpty || orderId.isEmpty) {
         throw Exception('Invalid reservation data: userId or orderId is missing.');
@@ -165,7 +166,6 @@ class _ReservationListPageState extends State<ReservationListPage> {
           throw Exception('Invalid item data: missing label, category, subCategory, or quantity.');
         }
 
-        // Deduct stock after adding to approved items
         await _deductItemQuantity(mainCategory, subCategory, label, itemSize, quantity);
 
         await _firestore.collection('approved_items').add({
@@ -194,8 +194,11 @@ class _ReservationListPageState extends State<ReservationListPage> {
         });
       }
 
+      // Update order status to 'approved'
       await _firestore.collection('users').doc(userId).collection('orders').doc(orderId).update({'status': 'approved'});
-      await _sendNotificationToUser(userId, userName, reservation);
+
+      // Send notification with student name and student ID
+      await _sendNotificationToUser(userId, userName, studentName, studentId, reservation);
       await _fetchAllPendingReservations();
 
       ScaffoldMessenger.of(context).showSnackBar(
@@ -272,7 +275,7 @@ class _ReservationListPageState extends State<ReservationListPage> {
     }
   }
 
-  Future<void> _sendNotificationToUser(String userId, String userName, Map<String, dynamic> reservation) async {
+  Future<void> _sendNotificationToUser(String userId, String userName, String studentName, String studentId, Map<String, dynamic> reservation) async {
     try {
       List<dynamic> orderItems = reservation['items'] ?? [];
       List<Map<String, dynamic>> orderSummary = [];
@@ -309,9 +312,9 @@ class _ReservationListPageState extends State<ReservationListPage> {
 
       String notificationMessage;
       if (orderSummary.length > 1) {
-        notificationMessage = 'Your bulk reservation (${orderSummary.length} items) has been approved.';
+        notificationMessage = 'Dear $studentName (ID: $studentId), your bulk reservation (${orderSummary.length} items) has been approved.';
       } else {
-        notificationMessage = 'Your reservation for ${orderSummary[0]['label']} (${orderSummary[0]['itemSize']}) has been approved.';
+        notificationMessage = 'Dear $studentName (ID: $studentId), your reservation for ${orderSummary[0]['label']} (${orderSummary[0]['itemSize']}) has been approved.';
       }
 
       CollectionReference notificationsRef = FirebaseFirestore.instance
@@ -323,6 +326,8 @@ class _ReservationListPageState extends State<ReservationListPage> {
         'title': 'Reservation Approved',
         'message': notificationMessage,
         'orderSummary': orderSummary,
+        'studentName': studentName,
+        'studentId': studentId,
         'timestamp': FieldValue.serverTimestamp(),
         'status': 'unread',
       });
