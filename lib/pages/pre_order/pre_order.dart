@@ -141,7 +141,6 @@ class _PreOrderPageState extends State<PreOrderPage> {
         String mainCategory = (item['category'] ?? '').trim();
         String subCategory = (item['courseLabel'] ?? '').trim();
         int quantity = item['quantity'] ?? 0;
-        double price = item['price'] ?? 0.0;
 
         if (label.isEmpty || mainCategory.isEmpty || subCategory.isEmpty || quantity <= 0) {
           throw Exception('Invalid item data: missing label, category, subCategory, or quantity.');
@@ -154,7 +153,6 @@ class _PreOrderPageState extends State<PreOrderPage> {
           'itemSize': itemSize,
           'quantity': quantity,
           'name': userName,
-          'pricePerPiece': price,
           'mainCategory': mainCategory,
           'subCategory': subCategory,
         });
@@ -226,75 +224,114 @@ class _PreOrderPageState extends State<PreOrderPage> {
       )
           : SingleChildScrollView(
         controller: _verticalController,
-        scrollDirection: Axis.vertical,
-        child: SingleChildScrollView(
-          controller: _verticalController,
-          scrollDirection: Axis.vertical,
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              // Calculate column widths based on available screen width
-              double totalWidth = constraints.maxWidth;
-              double orderIdWidth = totalWidth * 0.25; // Adjust proportions as needed
-              double userNameWidth = totalWidth * 0.10;
-              double totalPriceWidth = totalWidth * 0.15;
-              double orderDateWidth = totalWidth * 0.2;
-              double actionsWidth = totalWidth * 0.2;
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            double totalWidth = constraints.maxWidth;
+            double orderIdWidth = totalWidth * 0.2; // Adjusted proportions
+            double userNameWidth = totalWidth * 0.25;
+            double totalPriceWidth = totalWidth * 0.15;
+            double orderDateWidth = totalWidth * 0.2;
+            double actionsWidth = totalWidth * 0.2;
 
-              return SingleChildScrollView(
-                controller: _horizontalController,
-                scrollDirection: Axis.horizontal,
-                child: DataTable(
-                  columnSpacing: 16.0,
-                  columns: [
-                    DataColumn(label: SizedBox(width: orderIdWidth, child: Text('Order ID', style: TextStyle(fontWeight: FontWeight.bold)))),
-                    DataColumn(label: SizedBox(width: userNameWidth, child: Text('User Name', style: TextStyle(fontWeight: FontWeight.bold)))),
-                    DataColumn(label: SizedBox(width: totalPriceWidth, child: Align(alignment: Alignment.centerRight, child: Text('Total Price', style: TextStyle(fontWeight: FontWeight.bold))))),
-                    DataColumn(label: SizedBox(width: orderDateWidth, child: Align(alignment: Alignment.centerRight, child: Text('Order Date', style: TextStyle(fontWeight: FontWeight.bold))))),
-                    DataColumn(label: SizedBox(width: actionsWidth, child: Center(child: Text('Actions', style: TextStyle(fontWeight: FontWeight.bold))))),
-                  ],
-                  rows: allPendingPreOrders.map((order) {
-                    return DataRow(cells: [
-                      DataCell(SizedBox(
-                        width: orderIdWidth,
-                        child: Text(order['orderId'], overflow: TextOverflow.ellipsis),
-                      )),
-                      DataCell(SizedBox(
-                        width: userNameWidth,
-                        child: Text(order['userName']),
-                      )),
-                      DataCell(SizedBox(
-                        width: totalPriceWidth,
-                        child: Align(
-                          alignment: Alignment.centerRight, // Align price to the right
-                          child: Text("₱${order['totalOrderPrice']}"),
-                        ),
-                      )),
-                      DataCell(SizedBox(
-                        width: orderDateWidth,
-                        child: Align(
-                          alignment: Alignment.centerRight, // Align date to the right
-                          child: Text(DateFormat('yyyy-MM-dd').format(order['orderDate'].toDate())),
-                        ),
-                      )),
-                      DataCell(SizedBox(
-                        width: actionsWidth,
-                        child: Center(
-                          child: ElevatedButton(
-                            onPressed: () => _approvePreOrder(order),
-                            child: Text("Approve"),
-                            style: ElevatedButton.styleFrom(
-                              padding: EdgeInsets.symmetric(horizontal: 16.0),
-                              textStyle: TextStyle(fontSize: 12),
+            return SingleChildScrollView(
+              controller: _horizontalController,
+              scrollDirection: Axis.horizontal,
+              child: DataTable(
+                columnSpacing: 16.0,
+                headingRowColor: MaterialStateColor.resolveWith(
+                        (states) => Colors.grey.shade200), // Header background color
+                columns: [
+                  DataColumn(
+                      label: SizedBox(
+                          width: orderIdWidth,
+                          child: Text('Order ID',
+                              style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 14)))),
+                  DataColumn(
+                      label: SizedBox(
+                          width: userNameWidth,
+                          child: Text('User Name',
+                              style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 14)))),
+                  DataColumn(
+                      label: SizedBox(
+                          width: orderDateWidth,
+                          child: Align(
+                            alignment: Alignment.centerRight,
+                            child: Text('Order Date',
+                                style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 14)),
+                          ))),
+                  DataColumn(
+                      label: SizedBox(
+                          width: actionsWidth,
+                          child: Center(
+                            child: Text('Actions',
+                                style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 14)),
+                          ))),
+                ],
+                rows: allPendingPreOrders.map((order) {
+                  return DataRow(cells: [
+                    DataCell(SizedBox(
+                      width: orderIdWidth,
+                      child: Text(order['orderId'],
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(fontSize: 12)),
+                    )),
+                    DataCell(SizedBox(
+                      width: userNameWidth,
+                      child: Text(order['userName'],
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(fontSize: 12)),
+                    )),
+                    DataCell(SizedBox(
+                      width: totalPriceWidth,
+                      child: Align(
+                        alignment: Alignment.centerRight,
+                        child: Text("₱${order['totalOrderPrice']}",
+                            style: TextStyle(fontSize: 12)),
+                      ),
+                    )),
+                    DataCell(SizedBox(
+                      width: orderDateWidth,
+                      child: Align(
+                        alignment: Alignment.centerRight,
+                        child: Text(
+                            DateFormat('yyyy-MM-dd')
+                                .format(order['orderDate'].toDate()),
+                            style: TextStyle(fontSize: 12)),
+                      ),
+                    )),
+                    DataCell(SizedBox(
+                      width: actionsWidth,
+                      child: Center(
+                        child: ElevatedButton(
+                          onPressed: () => _approvePreOrder(order),
+                          child: Text("Approve"),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.blue,
+                            foregroundColor: Colors.white,
+                            padding: EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                            textStyle: TextStyle(fontSize: 12),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
                             ),
                           ),
                         ),
-                      )),
-                    ]);
-                  }).toList(),
-                ),
-              );
-            },
-          ),
+                      ),
+                    )),
+                  ]);
+                }).toList(),
+              ),
+            );
+          },
         ),
       ),
     );
