@@ -221,54 +221,99 @@ class _ReservationListPageState extends State<ReservationListPage> {
 
   Future<void> _deductItemQuantity(String category, String subCategory, String label, String size, int quantity) async {
     try {
+      // Map the specific known category format to match Firestore structure
+      if (category == 'merch_and_accessories') {
+        category = 'Merch & Accessories';
+      } else {
+        // Normalize the category name for other potential inconsistencies
+        category = category.toLowerCase().replaceAll('_', ' ');
+      }
+
       CollectionReference itemsRef;
 
-      // Adjust the Firestore path based on the category
-      if (category == 'senior_high_items') {
+      // Adjust the Firestore path based on the normalized or mapped category
+      if (category == 'senior high items') {
         itemsRef = _firestore.collection('Inventory_stock').doc('senior_high_items').collection('Items');
-      } else if (category == 'college_items') {
+
+        QuerySnapshot querySnapshot = await itemsRef.where('label', isEqualTo: label).limit(1).get();
+        if (querySnapshot.docs.isEmpty) {
+          throw Exception('Item not found in inventory: $label');
+        }
+
+        DocumentSnapshot itemDoc = querySnapshot.docs.first;
+        Map<String, dynamic> itemData = itemDoc.data() as Map<String, dynamic>;
+
+        if (itemData.containsKey('sizes') && itemData['sizes'] is Map && itemData['sizes'][size] != null) {
+          int currentStock = itemData['sizes'][size]['quantity'] ?? 0;
+
+          if (currentStock >= quantity) {
+            itemData['sizes'][size]['quantity'] = currentStock - quantity;
+            await itemsRef.doc(itemDoc.id).update({'sizes': itemData['sizes']});
+          } else {
+            throw Exception('Insufficient stock for $label size $size. Current stock: $currentStock, required: $quantity');
+          }
+        } else {
+          throw Exception('Size $size not available for item $label');
+        }
+
+      } else if (category == 'college items') {
         itemsRef = _firestore.collection('Inventory_stock').doc('college_items').collection(subCategory);
+
+        QuerySnapshot querySnapshot = await itemsRef.where('label', isEqualTo: label).limit(1).get();
+        if (querySnapshot.docs.isEmpty) {
+          throw Exception('Item not found in inventory: $label');
+        }
+
+        DocumentSnapshot itemDoc = querySnapshot.docs.first;
+        Map<String, dynamic> itemData = itemDoc.data() as Map<String, dynamic>;
+
+        if (itemData.containsKey('sizes') && itemData['sizes'] is Map && itemData['sizes'][size] != null) {
+          int currentStock = itemData['sizes'][size]['quantity'] ?? 0;
+
+          if (currentStock >= quantity) {
+            itemData['sizes'][size]['quantity'] = currentStock - quantity;
+            await itemsRef.doc(itemDoc.id).update({'sizes': itemData['sizes']});
+          } else {
+            throw Exception('Insufficient stock for $label size $size. Current stock: $currentStock, required: $quantity');
+          }
+        } else {
+          throw Exception('Size $size not available for item $label');
+        }
+
       } else if (category == 'Merch & Accessories') {
-        itemsRef = _firestore.collection('Inventory_stock').doc('Merch & Accessories').collection('Items');
+        // Directly access fields in "Merch & Accessories" document
+        DocumentSnapshot merchDoc = await _firestore.collection('Inventory_stock').doc('Merch & Accessories').get();
+        if (!merchDoc.exists) {
+          throw Exception('Merch & Accessories document not found');
+        }
+
+        Map<String, dynamic> merchData = merchDoc.data() as Map<String, dynamic>;
+
+        if (merchData.containsKey(label)) {
+          Map<String, dynamic> itemData = merchData[label] as Map<String, dynamic>;
+
+          if (itemData.containsKey('sizes') && itemData['sizes'] is Map && itemData['sizes'][size] != null) {
+            int currentStock = itemData['sizes'][size]['quantity'] ?? 0;
+
+            if (currentStock >= quantity) {
+              itemData['sizes'][size]['quantity'] = currentStock - quantity;
+
+              // Update only the specific item field in "Merch & Accessories" document
+              await _firestore.collection('Inventory_stock').doc('Merch & Accessories').update({label: itemData});
+            } else {
+              throw Exception('Insufficient stock for $label size $size. Current stock: $currentStock, required: $quantity');
+            }
+          } else {
+            throw Exception('Size $size not available for item $label');
+          }
+        } else {
+          throw Exception('Item not found in Merch & Accessories: $label');
+        }
+
       } else {
         throw Exception('Unknown category: $category');
       }
 
-      // Debugging: Print the collection path and label for verification
-      print("Searching in collection: Inventory_stock/$category/$subCategory");
-      print("Looking for item with label: $label and size: $size");
-
-      // Query Firestore for the item by label
-      QuerySnapshot querySnapshot = await itemsRef.where('label', isEqualTo: label).limit(1).get();
-      if (querySnapshot.docs.isEmpty) {
-        throw Exception('Item not found in inventory: $label');
-      }
-
-      DocumentSnapshot itemDoc = querySnapshot.docs.first;
-      Map<String, dynamic> itemData = itemDoc.data() as Map<String, dynamic>;
-
-      // Check if the `sizes` field exists and contains the specified size
-      if (itemData.containsKey('sizes') && itemData['sizes'] is Map && itemData['sizes'][size] != null) {
-        int currentStock = itemData['sizes'][size]['quantity'] ?? 0;
-
-        // Ensure there is enough stock to deduct
-        if (currentStock >= quantity) {
-          // Deduct the quantity
-          itemData['sizes'][size]['quantity'] = currentStock - quantity;
-          await itemsRef.doc(itemDoc.id).update({'sizes': itemData['sizes']});
-
-          // Fetch and print updated stock to verify the deduction
-          DocumentSnapshot updatedItemDoc = await itemsRef.doc(itemDoc.id).get();
-          Map<String, dynamic> updatedItemData = updatedItemDoc.data() as Map<String, dynamic>;
-          int updatedStock = updatedItemData['sizes'][size]['quantity'] ?? 0;
-
-          print("Updated stock for $label (Size: $size) after deduction: $updatedStock");
-        } else {
-          throw Exception('Insufficient stock for $label size $size. Current stock: $currentStock, required: $quantity');
-        }
-      } else {
-        throw Exception('Size $size not available for item $label');
-      }
     } catch (e) {
       print('Error in _deductItemQuantity: $e');
       throw Exception('Failed to deduct stock: $e');
