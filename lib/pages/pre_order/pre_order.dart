@@ -29,79 +29,6 @@ class _PreOrderPageState extends State<PreOrderPage> {
     super.dispose();
   }
 
-  Future<void> _fetchAllPendingPreOrders() async {
-    List<Map<String, dynamic>> pendingPreOrders = [];
-    setState(() {
-      isLoading = true;
-    });
-
-    QuerySnapshot usersSnapshot = await _firestore.collection('users').get();
-
-    for (var userDoc in usersSnapshot.docs) {
-      String userName = userDoc['name'] ?? 'Unknown User';
-      String studentId = (userDoc.data() as Map<String, dynamic>).containsKey('studentId')
-          ? userDoc['studentId']
-          : 'Unknown ID';
-
-      QuerySnapshot ordersSnapshot = await _firestore
-          .collection('users')
-          .doc(userDoc.id)
-          .collection('orders')
-          .where('status', isEqualTo: 'pending') // Only fetch pending pre-orders
-          .get();
-
-      for (var orderDoc in ordersSnapshot.docs) {
-        Map<String, dynamic> preOrderData = orderDoc.data() as Map<String, dynamic>;
-
-        preOrderData['orderId'] = orderDoc.id;
-        preOrderData['userName'] = userName;
-        preOrderData['studentId'] = studentId;
-        preOrderData['userId'] = userDoc.id;
-        preOrderData['category'] = preOrderData['category'] ?? 'Unknown Category';
-        preOrderData['label'] = preOrderData['label'] ?? 'No Label';
-        preOrderData['itemSize'] = preOrderData['itemSize'] ?? 'Unknown Size';
-        preOrderData['courseLabel'] = preOrderData['courseLabel'] ?? 'Unknown Course';
-
-        if (preOrderData.containsKey('items') && preOrderData['items'] is List) {
-          List<dynamic> orderItems = preOrderData['items'];
-
-          double totalOrderPrice = 0.0;
-          for (var item in orderItems) {
-            int itemQuantity = item['quantity'] ?? 1;
-            double itemPrice = item['price'] ?? 0.0;
-            double itemTotalPrice = itemQuantity * itemPrice;
-            item['totalPrice'] = itemTotalPrice.toStringAsFixed(2);
-
-            totalOrderPrice += itemTotalPrice;
-          }
-
-          preOrderData['totalOrderPrice'] = totalOrderPrice.toStringAsFixed(2);
-        } else {
-          int quantity = preOrderData['quantity'] ?? 1;
-          double pricePerPiece = preOrderData['price'] ?? 0.0;
-          double totalPrice = quantity * pricePerPiece;
-          preOrderData['totalPrice'] = totalPrice.toStringAsFixed(2);
-        }
-        pendingPreOrders.add(preOrderData);
-      }
-    }
-
-    pendingPreOrders.sort((a, b) {
-      Timestamp aTimestamp = a['orderDate'] != null && a['orderDate'] is Timestamp
-          ? a['orderDate']
-          : Timestamp.now();
-      Timestamp bTimestamp = b['orderDate'] != null && b['orderDate'] is Timestamp
-          ? b['orderDate']
-          : Timestamp.now();
-      return bTimestamp.compareTo(aTimestamp);
-    });
-
-    setState(() {
-      allPendingPreOrders = pendingPreOrders;
-      isLoading = false;
-    });
-  }
-
   Future<void> _approvePreOrder(Map<String, dynamic> preOrder) async {
     try {
       String userId = preOrder['userId'] ?? '';
@@ -141,7 +68,6 @@ class _PreOrderPageState extends State<PreOrderPage> {
         String mainCategory = (item['category'] ?? '').trim();
         String subCategory = (item['courseLabel'] ?? '').trim();
         int quantity = item['quantity'] ?? 0;
-        double price = item['price'] ?? 0.0;
 
         if (label.isEmpty || mainCategory.isEmpty || subCategory.isEmpty || quantity <= 0) {
           throw Exception('Invalid item data: missing label, category, subCategory, or quantity.');
@@ -154,7 +80,6 @@ class _PreOrderPageState extends State<PreOrderPage> {
           'itemSize': itemSize,
           'quantity': quantity,
           'name': userName,
-          'pricePerPiece': price,
           'mainCategory': mainCategory,
           'subCategory': subCategory,
         });
@@ -213,6 +138,59 @@ class _PreOrderPageState extends State<PreOrderPage> {
     }
   }
 
+  Future<void> _fetchAllPendingPreOrders() async {
+    List<Map<String, dynamic>> pendingPreOrders = [];
+    setState(() {
+      isLoading = true;
+    });
+
+    QuerySnapshot usersSnapshot = await _firestore.collection('users').get();
+
+    for (var userDoc in usersSnapshot.docs) {
+      String userName = userDoc['name'] ?? 'Unknown User';
+      String studentId = (userDoc.data() as Map<String, dynamic>).containsKey('studentId')
+          ? userDoc['studentId']
+          : 'Unknown ID';
+
+      QuerySnapshot preordersSnapshot = await _firestore
+          .collection('users')
+          .doc(userDoc.id)
+          .collection('preorders')
+          .where('status', isEqualTo: 'pre-order confirmed')
+          .get();
+
+      for (var preorderDoc in preordersSnapshot.docs) {
+        Map<String, dynamic> preOrderData = preorderDoc.data() as Map<String, dynamic>;
+
+        List<dynamic> items = preOrderData['items'] ?? [];
+        String label = items.length > 1 ? "Bulk Order (${items.length} items)" : items[0]['label'];
+        String preOrderDate = DateFormat('yyyy-MM-dd').format((preOrderData['preOrderDate'] as Timestamp).toDate());
+
+        pendingPreOrders.add({
+          'userName': userName,
+          'studentId': studentId,
+          'label': label,
+          'category': items.length > 1 ? 'Multiple' : items[0]['category'],
+          'courseLabel': items.length > 1 ? 'Various' : items[0]['courseLabel'],
+          'itemSize': items.length > 1 ? 'Various' : items[0]['itemSize'],
+          'quantity': items.length > 1 ? items.map((e) => e['quantity'] as int).reduce((a, b) => a + b) : items[0]['quantity'],
+          'preOrderDate': preOrderDate,
+          'items': items, // Keep items for detailed view
+          'preOrderTimestamp': preOrderData['preOrderDate'] as Timestamp, // Keep timestamp for sorting
+          'orderId': preorderDoc.id,
+        });
+      }
+    }
+
+    // Sort pendingPreOrders by preOrderTimestamp in descending order
+    pendingPreOrders.sort((a, b) => b['preOrderTimestamp'].compareTo(a['preOrderTimestamp']));
+
+    setState(() {
+      allPendingPreOrders = pendingPreOrders;
+      isLoading = false;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -221,79 +199,165 @@ class _PreOrderPageState extends State<PreOrderPage> {
         centerTitle: true,
       ),
       body: isLoading
-          ? Center(
-        child: CircularProgressIndicator(),
-      )
+          ? Center(child: CircularProgressIndicator())
           : SingleChildScrollView(
         controller: _verticalController,
-        scrollDirection: Axis.vertical,
         child: SingleChildScrollView(
-          controller: _verticalController,
-          scrollDirection: Axis.vertical,
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              // Calculate column widths based on available screen width
-              double totalWidth = constraints.maxWidth;
-              double orderIdWidth = totalWidth * 0.25; // Adjust proportions as needed
-              double userNameWidth = totalWidth * 0.10;
-              double totalPriceWidth = totalWidth * 0.15;
-              double orderDateWidth = totalWidth * 0.2;
-              double actionsWidth = totalWidth * 0.2;
-
-              return SingleChildScrollView(
-                controller: _horizontalController,
-                scrollDirection: Axis.horizontal,
-                child: DataTable(
-                  columnSpacing: 16.0,
-                  columns: [
-                    DataColumn(label: SizedBox(width: orderIdWidth, child: Text('Order ID', style: TextStyle(fontWeight: FontWeight.bold)))),
-                    DataColumn(label: SizedBox(width: userNameWidth, child: Text('User Name', style: TextStyle(fontWeight: FontWeight.bold)))),
-                    DataColumn(label: SizedBox(width: totalPriceWidth, child: Align(alignment: Alignment.centerRight, child: Text('Total Price', style: TextStyle(fontWeight: FontWeight.bold))))),
-                    DataColumn(label: SizedBox(width: orderDateWidth, child: Align(alignment: Alignment.centerRight, child: Text('Order Date', style: TextStyle(fontWeight: FontWeight.bold))))),
-                    DataColumn(label: SizedBox(width: actionsWidth, child: Center(child: Text('Actions', style: TextStyle(fontWeight: FontWeight.bold))))),
-                  ],
-                  rows: allPendingPreOrders.map((order) {
-                    return DataRow(cells: [
-                      DataCell(SizedBox(
-                        width: orderIdWidth,
-                        child: Text(order['orderId'], overflow: TextOverflow.ellipsis),
-                      )),
-                      DataCell(SizedBox(
-                        width: userNameWidth,
-                        child: Text(order['userName']),
-                      )),
-                      DataCell(SizedBox(
-                        width: totalPriceWidth,
-                        child: Align(
-                          alignment: Alignment.centerRight, // Align price to the right
-                          child: Text("₱${order['totalOrderPrice']}"),
-                        ),
-                      )),
-                      DataCell(SizedBox(
-                        width: orderDateWidth,
-                        child: Align(
-                          alignment: Alignment.centerRight, // Align date to the right
-                          child: Text(DateFormat('yyyy-MM-dd').format(order['orderDate'].toDate())),
-                        ),
-                      )),
-                      DataCell(SizedBox(
-                        width: actionsWidth,
-                        child: Center(
-                          child: ElevatedButton(
-                            onPressed: () => _approvePreOrder(order),
-                            child: Text("Approve"),
-                            style: ElevatedButton.styleFrom(
-                              padding: EdgeInsets.symmetric(horizontal: 16.0),
-                              textStyle: TextStyle(fontSize: 12),
-                            ),
-                          ),
-                        ),
-                      )),
-                    ]);
-                  }).toList(),
+          scrollDirection: Axis.horizontal,
+          controller: _horizontalController,
+          child: DataTable(
+            columnSpacing: 16.0,
+            headingRowColor: MaterialStateColor.resolveWith(
+                    (states) => Colors.grey.shade200),
+            columns: [
+              DataColumn(
+                label: Text(
+                  'User Name',
+                  style: TextStyle(fontWeight: FontWeight.bold),
                 ),
-              );
-            },
+              ),
+              DataColumn(
+                label: Text(
+                  'Item Label',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+              ),
+              DataColumn(
+                label: Text(
+                  'Category',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+              ),
+              DataColumn(
+                label: Text(
+                  'Course Label',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+              ),
+              DataColumn(
+                label: Text(
+                  'Size',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+              ),
+              DataColumn(
+                label: Text(
+                  'Quantity',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+              ),
+              DataColumn(
+                label: Text(
+                  'Pre-Order Date',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+              ),
+              DataColumn(
+                label: Text(
+                  'Actions',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+              ),
+            ],
+            rows: allPendingPreOrders.expand((order) {
+              List<DataRow> rows = [];
+              bool isBulkOrder = order['items'].length > 1;
+
+              rows.add(DataRow(cells: [
+                DataCell(ConstrainedBox(
+                  constraints: BoxConstraints(maxWidth: 100),
+                  child: Text(order['userName'],
+                      overflow: TextOverflow.ellipsis),
+                )),
+                DataCell(
+                  isBulkOrder
+                      ? InkWell(
+                    onTap: () {
+                      setState(() {
+                        if (expandedBulkOrders.contains(
+                            order['orderId'])) {
+                          expandedBulkOrders.remove(order['orderId']);
+                        } else {
+                          expandedBulkOrders.add(order['orderId']);
+                        }
+                      });
+                    },
+                    child: Row(
+                      children: [
+                        ConstrainedBox(
+                          constraints: BoxConstraints(maxWidth: 120),
+                          child: Text(order['label'],
+                              overflow: TextOverflow.ellipsis),
+                        ),
+                        Icon(
+                          expandedBulkOrders.contains(order['orderId'])
+                              ? Icons.expand_less
+                              : Icons.expand_more,
+                        ),
+                      ],
+                    ),
+                  )
+                      : ConstrainedBox(
+                    constraints: BoxConstraints(maxWidth: 120),
+                    child: Text(order['label'],
+                        overflow: TextOverflow.ellipsis),
+                  ),
+                ),
+                DataCell(ConstrainedBox(
+                  constraints: BoxConstraints(maxWidth: 100),
+                  child: Text(order['category'],
+                      overflow: TextOverflow.ellipsis),
+                )),
+                DataCell(ConstrainedBox(
+                  constraints: BoxConstraints(maxWidth: 100),
+                  child: Text(order['courseLabel'],
+                      overflow: TextOverflow.ellipsis),
+                )),
+                DataCell(ConstrainedBox(
+                  constraints: BoxConstraints(maxWidth: 50),
+                  child: Text(order['itemSize'],
+                      overflow: TextOverflow.ellipsis),
+                )),
+                DataCell(Text(order['quantity'].toString())),
+                DataCell(Text(order['preOrderDate'])),
+                DataCell(ElevatedButton(
+                  onPressed: () {}, // Your action here
+                  child: Text("Approve"),
+                )),
+              ]));
+
+              if (isBulkOrder && expandedBulkOrders.contains(order['orderId'])) {
+                rows.addAll(order['items'].map<DataRow>((item) {
+                  return DataRow(cells: [
+                    DataCell(SizedBox()), // Empty cell for alignment
+                    DataCell(ConstrainedBox(
+                      constraints: BoxConstraints(maxWidth: 120),
+                      child: Text(item['label'],
+                          overflow: TextOverflow.ellipsis),
+                    )),
+                    DataCell(ConstrainedBox(
+                      constraints: BoxConstraints(maxWidth: 100),
+                      child: Text(item['category'],
+                          overflow: TextOverflow.ellipsis),
+                    )),
+                    DataCell(ConstrainedBox(
+                      constraints: BoxConstraints(maxWidth: 100),
+                      child: Text(item['courseLabel'],
+                          overflow: TextOverflow.ellipsis),
+                    )),
+                    DataCell(ConstrainedBox(
+                      constraints: BoxConstraints(maxWidth: 50),
+                      child: Text(item['itemSize'],
+                          overflow: TextOverflow.ellipsis),
+                    )),
+                    DataCell(Text(item['quantity'].toString())),
+                    DataCell(SizedBox()),
+                    DataCell(SizedBox()),
+                  ]);
+                }).toList());
+              }
+              return rows;
+            }).toList(),
           ),
         ),
       ),
