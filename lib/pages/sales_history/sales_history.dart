@@ -23,53 +23,59 @@ class _SalesHistoryPageState extends State<SalesHistoryPage> {
     return DateFormat('yyyy-MM-dd HH:mm:ss').format(date);
   }
 
-  // Function to generate PDF
   Future<void> _generatePDF(List<Map<String, dynamic>> salesData) async {
     final pdf = pw.Document();
-    pdf.addPage(
-      pw.Page(
-        build: (pw.Context context) {
-          return pw.Column(
-            crossAxisAlignment: pw.CrossAxisAlignment.start,
-            children: [
-              pw.Text('Sales History', style: pw.TextStyle(fontSize: 24, fontWeight: pw.FontWeight.bold)),
-              pw.SizedBox(height: 16),
-              pw.Table(
-                border: pw.TableBorder.all(color: PdfColors.black, width: 1),
-                children: [
-                  pw.TableRow(
-                    children: [
-                      pw.Text('Item Label', style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
-                      pw.Text('Item Size', style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
-                      pw.Text('Quantity', style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
-                      pw.Text('Category', style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
-                      pw.Text('Student Name', style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
-                      pw.Text('Student Number', style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
-                      pw.Text('Order Timestamp', style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
-                    ],
-                  ),
-                  ...salesData.map((saleItem) {
-                    return pw.TableRow(
-                      children: [
-                        pw.Text(saleItem['itemLabel'] ?? 'N/A'),
-                        pw.Text(saleItem['itemSize'] ?? 'N/A'),
-                        pw.Text(saleItem['quantity'].toString()),
-                        pw.Text(saleItem['category'] ?? 'N/A'),
-                        pw.Text(saleItem['userName'] ?? 'N/A'),
-                        pw.Text(saleItem['studentNumber'] ?? 'N/A'),
-                        pw.Text(_formatDate(saleItem['timestamp'] as Timestamp)),
-                      ],
-                    );
-                  }).toList(),
-                ],
-              ),
-            ],
-          );
-        },
-      ),
-    );
+    const int rowsPerPage = 20;
 
-    // Print the PDF
+    int pageCount = (salesData.length / rowsPerPage).ceil();
+    for (int page = 0; page < pageCount; page++) {
+      final rowsChunk = salesData.skip(page * rowsPerPage).take(rowsPerPage).toList();
+
+      pdf.addPage(
+        pw.Page(
+          build: (pw.Context context) {
+            return pw.Column(
+              children: [
+                pw.Text('Sales History (Page ${page + 1} of $pageCount)'),
+                pw.SizedBox(height: 16),
+                pw.Table(
+                  border: pw.TableBorder.all(color: PdfColors.black, width: 1),
+                  children: [
+                    // Header row
+                    pw.TableRow(
+                      children: [
+                        pw.Text('Item Label'),
+                        pw.Text('Item Size'),
+                        pw.Text('Quantity'),
+                        pw.Text('Category'),
+                        pw.Text('Student Name'),
+                        pw.Text('Student Number'),
+                        pw.Text('Order Timestamp'),
+                      ],
+                    ),
+                    // Data rows
+                    ...rowsChunk.map((saleItem) {
+                      return pw.TableRow(
+                        children: [
+                          pw.Text(saleItem['itemLabel'] ?? 'N/A'),
+                          pw.Text(saleItem['itemSize'] ?? 'N/A'),
+                          pw.Text(saleItem['quantity'].toString()),
+                          pw.Text(saleItem['category'] ?? 'N/A'),
+                          pw.Text(saleItem['userName'] ?? 'N/A'),
+                          pw.Text(saleItem['studentNumber'] ?? 'N/A'),
+                          pw.Text(_formatDate(saleItem['timestamp'] as Timestamp)),
+                        ],
+                      );
+                    }),
+                  ],
+                ),
+              ],
+            );
+          },
+        ),
+      );
+    }
+
     await Printing.layoutPdf(
       onLayout: (PdfPageFormat format) async => pdf.save(),
     );
@@ -149,7 +155,16 @@ class _SalesHistoryPageState extends State<SalesHistoryPage> {
                 }
               });
 
-              await _generatePDF(allSalesItems);
+              // Debugging: Print the fetched data
+              print("Fetched ${allSalesItems.length} items from Firestore.");
+              allSalesItems.forEach((item) => print(item));
+
+              // Ensure that data is being passed to _generatePDF
+              if (allSalesItems.isNotEmpty) {
+                await _generatePDF(allSalesItems);
+              } else {
+                print("No sales data to display in PDF");
+              }
             },
           ),
         ],

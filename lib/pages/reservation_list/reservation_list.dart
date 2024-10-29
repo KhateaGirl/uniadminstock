@@ -485,7 +485,11 @@ class _ReservationListPageState extends State<ReservationListPage> {
                           DataCell(Text(reservation['userName'] ?? 'Unknown User')),
                           DataCell(Text(reservation['studentId'] ?? 'Unknown ID')),
                           DataCell(Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
+                              Text(orderItems.length > 1
+                                  ? 'Bulk Order (${orderItems.length} items)'
+                                  : (orderItems.isNotEmpty ? orderItems[0]['label'] ?? 'No label' : 'No label')),
                               if (orderItems.length > 1)
                                 IconButton(
                                   icon: Icon(isExpanded ? Icons.expand_less : Icons.expand_more),
@@ -499,9 +503,6 @@ class _ReservationListPageState extends State<ReservationListPage> {
                                     });
                                   },
                                 ),
-                              Text(orderItems.length > 1
-                                  ? 'Bulk Order (${orderItems.length} items)'
-                                  : (orderItems.isNotEmpty ? orderItems[0]['label'] ?? 'No label' : 'No label')),
                             ],
                           )),
                           DataCell(Text('')),
