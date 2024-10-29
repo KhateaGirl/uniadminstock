@@ -1,5 +1,5 @@
 import 'dart:io';
-import 'package:flutter/foundation.dart'; // Required for kIsWeb
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
@@ -27,11 +27,10 @@ class _SettingsPageState extends State<SettingsPage> {
   bool _isAnnouncementImageUploading = false;
   bool _isItemImageUploading = false;
 
-  File? _selectedImageFile; // Non-web file storage
-  File? _selectedItemImageFile; // Non-web file storage
-  Uint8List? _webImage; // Web image byte storage for announcement
-  Uint8List? _webItemImage; // Web image byte storage for item
-
+  File? _selectedImageFile;
+  File? _selectedItemImageFile;
+  Uint8List? _webImage;
+  Uint8List? _webItemImage;
   final picker = ImagePicker();
   double _uploadProgress = 0.0;
   String _uploadStatus = "";
@@ -51,7 +50,13 @@ class _SettingsPageState extends State<SettingsPage> {
     super.initState();
   }
 
-  // Update admin credentials
+  void _refreshPage() {
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(builder: (BuildContext context) => super.widget),
+    );
+  }
+
   Future<void> updateAdminCredentials() async {
     setState(() {
       _isLoading = true;
@@ -62,7 +67,11 @@ class _SettingsPageState extends State<SettingsPage> {
 
     if (_formKeyCredentials.currentState?.validate() == true) {
       try {
-        // Placeholder for Admin Credentials Update Logic
+        await firestore.collection('admin').doc('ZmjXRodEmi3LOaYA10tH').update({
+          'Username': username,
+          'Password': password,
+        });
+
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text("Credentials updated successfully!")),
         );
@@ -118,18 +127,16 @@ class _SettingsPageState extends State<SettingsPage> {
 
   Future<void> _updateAnnouncementImageUrl(String imageUrl) async {
     try {
-      // First, find the document ID that matches the selected announcement label
       final querySnapshot = await firestore
           .collection('admin')
           .doc('ZmjXRodEmi3LOaYA10tH')
           .collection('announcements')
-          .where('announcement_label', isEqualTo: _selectedAnnouncement) // Assuming _selectedAnnouncement is the label
+          .where('announcement_label', isEqualTo: _selectedAnnouncement)
           .get();
 
       if (querySnapshot.docs.isNotEmpty) {
         final announcementDocId = querySnapshot.docs.first.id;
 
-        // Now, use the document ID to update the image URL
         final announcementDocRef = firestore
             .collection('admin')
             .doc('ZmjXRodEmi3LOaYA10tH')
@@ -143,6 +150,8 @@ class _SettingsPageState extends State<SettingsPage> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text("Announcement image updated successfully!")),
         );
+
+
       } else {
         print("No matching document found for label: $_selectedAnnouncement");
         ScaffoldMessenger.of(context).showSnackBar(
@@ -163,7 +172,6 @@ class _SettingsPageState extends State<SettingsPage> {
 
       String storagePath;
       if (forAnnouncement) {
-        // Use exact path for the announcement
         storagePath = 'admin_images/Announcements/ZmjXRodEmi3LOaYA10tH/${DateTime.now().millisecondsSinceEpoch}.png';
       } else if (_selectedItemCategory == "Merch & Accessories") {
         storagePath = 'merch_images/${documentId}_${DateTime.now().millisecondsSinceEpoch}.png';
@@ -192,10 +200,12 @@ class _SettingsPageState extends State<SettingsPage> {
         TaskSnapshot taskSnapshot = await uploadTask;
         String downloadUrl = await taskSnapshot.ref.getDownloadURL();
 
-        // If it's an announcement, update Firestore with the new image URL
         if (forAnnouncement && _selectedAnnouncement != null) {
           await _updateAnnouncementImageUrl(downloadUrl);
         }
+
+        // Refresh the page after successful upload
+        _refreshPage();
 
         return downloadUrl;
       } else {
@@ -223,15 +233,12 @@ class _SettingsPageState extends State<SettingsPage> {
     try {
       DocumentReference documentRef;
 
-      // Upload image and get the URL
       String imageUrl = await _uploadImageToStorage(label, forAnnouncement: false);
       if (imageUrl.isEmpty) throw 'Image upload failed';
 
       if (_selectedItemCategory == "Merch & Accessories") {
-        // For Merch & Accessories, all items are stored in one document as fields
         documentRef = firestore.collection("Inventory_stock").doc("Merch & Accessories");
 
-        // Define item data with "imagePath"
         Map<String, dynamic> itemData = {
           "label": label,
           "price": price,
@@ -241,20 +248,17 @@ class _SettingsPageState extends State<SettingsPage> {
               'price': price,
             }
           },
-          "imagePath": imageUrl, // Use "imagePath" for Merch & Accessories
+          "imagePath": imageUrl,
         };
 
-        // Update only the specific field for the item within Merch & Accessories
         await documentRef.update({
           label: itemData,
         });
 
       } else if (_selectedItemCategory == "senior_high_items") {
-        // Each item is a separate document in senior_high_items/Items
         documentRef = firestore.collection("Inventory_stock")
             .doc("senior_high_items").collection("Items").doc(label);
 
-        // Define item data with "imagePath"
         Map<String, dynamic> itemData = {
           "label": label,
           "price": price,
@@ -264,19 +268,16 @@ class _SettingsPageState extends State<SettingsPage> {
               'price': price,
             }
           },
-          "imagePath": imageUrl, // Use "imagePath" for senior_high_items
+          "imagePath": imageUrl,
           "category": _selectedItemCategory,
         };
 
-        // Set or update the document directly since each item is its own document
         await documentRef.set(itemData, SetOptions(merge: true));
 
       } else if (_selectedItemCategory == "college_items" && _selectedCourseLabel != null) {
-        // Each item is a separate document within college_items/courseLabel
         documentRef = firestore.collection("Inventory_stock")
             .doc("college_items").collection(_selectedCourseLabel!).doc(label);
 
-        // Define item data with "imageUrl"
         Map<String, dynamic> itemData = {
           "label": label,
           "price": price,
@@ -286,11 +287,10 @@ class _SettingsPageState extends State<SettingsPage> {
               'price': price,
             }
           },
-          "imageUrl": imageUrl, // Use "imageUrl" for college_items
+          "imageUrl": imageUrl,
           "category": _selectedItemCategory,
         };
 
-        // Set or update the document directly since each item is its own document
         await documentRef.set(itemData, SetOptions(merge: true));
 
       } else {
@@ -301,13 +301,8 @@ class _SettingsPageState extends State<SettingsPage> {
         SnackBar(content: Text("Item added or updated successfully!")),
       );
 
-      // Clear input fields
-      _itemLabelController.clear();
-      _itemPriceController.clear();
-      _itemSizeController.clear();
-      _itemQuantityController.clear();
-      _selectedItemCategory = null;
-      _selectedCourseLabel = null;
+      // Refresh the page after successful add/update
+      _refreshPage();
 
     } catch (e) {
       print("Error adding/updating item: $e");
@@ -324,7 +319,6 @@ class _SettingsPageState extends State<SettingsPage> {
       DocumentReference documentRef;
 
       if (_selectedItemCategory == "Merch & Accessories") {
-        // Delete directly using label as key in Merch & Accessories
         documentRef = firestore.collection("Inventory_stock").doc("Merch & Accessories");
         DocumentSnapshot documentSnapshot = await documentRef.get();
         Map<String, dynamic>? data = documentSnapshot.data() as Map<String, dynamic>?;
@@ -336,6 +330,8 @@ class _SettingsPageState extends State<SettingsPage> {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text("Item '$label' deleted successfully from Merch & Accessories!")),
           );
+
+          _refreshPage();
         } else {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text("Item '$label' not found in Merch & Accessories!")),
@@ -343,7 +339,6 @@ class _SettingsPageState extends State<SettingsPage> {
         }
 
       } else if (_selectedItemCategory == "senior_high_items") {
-        // Query documents by label to find document ID
         QuerySnapshot querySnapshot = await firestore
             .collection("Inventory_stock")
             .doc("senior_high_items")
@@ -358,6 +353,9 @@ class _SettingsPageState extends State<SettingsPage> {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text("Item '$label' deleted successfully from Senior High Items!")),
           );
+
+          // Refresh the page after successful deletion
+          _refreshPage();
         } else {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text("Item '$label' not found in Senior High Items!")),
@@ -365,7 +363,6 @@ class _SettingsPageState extends State<SettingsPage> {
         }
 
       } else if (_selectedItemCategory == "college_items" && _selectedCourseLabel != null) {
-        // Query documents by label to find document ID
         QuerySnapshot querySnapshot = await firestore
             .collection("Inventory_stock")
             .doc("college_items")
@@ -380,6 +377,9 @@ class _SettingsPageState extends State<SettingsPage> {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text("Item '$label' deleted successfully from College Items!")),
           );
+
+          // Refresh the page after successful deletion
+          _refreshPage();
         } else {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text("Item '$label' not found in College Items!")),
@@ -471,6 +471,7 @@ class _SettingsPageState extends State<SettingsPage> {
               ),
               Divider(thickness: 2),
               Text('Add or Update Item', style: TextStyle(fontWeight: FontWeight.bold)),
+
               Form(
                 key: _formKeyInventory,
                 child: Column(
@@ -534,9 +535,11 @@ class _SettingsPageState extends State<SettingsPage> {
                       label: Text('Select Image for Item'),
                       onPressed: () => _pickImage(forAnnouncement: false),
                     ),
-                    SizedBox(height: 20),
+                    if (_webItemImage != null) Image.memory(_webItemImage!, height: 150),
+                    // Preview of the selected item image
+                    SizedBox(height: 10),
                     ElevatedButton.icon(
-                      icon: Icon(Icons.add),
+                      icon: Icon(Icons.cloud_upload),
                       label: _isItemImageUploading ? Text('Uploading...') : Text('Add or Update Item'),
                       onPressed: _isItemImageUploading ? null : addOrUpdateItem,
                     ),
