@@ -433,15 +433,16 @@ class _ReservationListPageState extends State<ReservationListPage> {
                   ],
                   rows: allPendingReservations.expand<DataRow>((reservation) {
                     final List orderItems = reservation['items'] ?? [];
+                    bool isBulkOrder = orderItems.length > 1;
                     bool isExpanded = expandedBulkOrders.contains(reservation['orderId']);
 
-                    if (orderItems.isEmpty) {
-                      // Handle single-item orders directly
-                      int quantity = reservation['quantity'] ?? 1;
-                      double pricePerPiece = reservation['pricePerPiece'] ?? reservation['price'] ?? 0.0;
-                      double totalPrice = double.tryParse(reservation['totalPrice']) ?? 0.0;
-                      String size = reservation['size'] ?? reservation['itemSize'] ?? 'No Size';
-                      String label = reservation['label'] ?? 'No Label';
+                    if (!isBulkOrder) {
+                      final singleItem = orderItems[0];
+                      int quantity = singleItem['quantity'] ?? 1;
+                      double pricePerPiece = double.tryParse(singleItem['price']?.toString() ?? '0') ?? 0.0;
+                      double totalPrice = double.tryParse(singleItem['totalPrice']?.toString() ?? (pricePerPiece * quantity).toString()) ?? 0.0;
+                      String size = singleItem['itemSize'] ?? 'No Size';
+                      String label = singleItem['label'] ?? 'No Label';
 
                       return [
                         DataRow(
@@ -450,9 +451,9 @@ class _ReservationListPageState extends State<ReservationListPage> {
                             DataCell(Text(reservation['userName'] ?? 'Unknown User')),
                             DataCell(Text(reservation['studentId'] ?? 'Unknown ID')),
                             DataCell(Text(label)),
-                            DataCell(Text(size)), // Display Size
+                            DataCell(Text(size)),
                             DataCell(Text('$quantity')),
-                            DataCell(Text('₱${pricePerPiece.toStringAsFixed(2)}')), // Display Price per Piece
+                            DataCell(Text('₱${pricePerPiece.toStringAsFixed(2)}')),
                             DataCell(Text('₱${totalPrice.toStringAsFixed(2)}')),
                             DataCell(Text(
                               reservation['orderDate'] != null && reservation['orderDate'] is Timestamp
@@ -473,10 +474,11 @@ class _ReservationListPageState extends State<ReservationListPage> {
                         ),
                       ];
                     }
-                    // Existing logic for handling bulk orders
+
+                    // Handling bulk orders with expandable rows
                     double totalQuantity = orderItems.fold<double>(0, (sum, item) => sum + (item['quantity'] ?? 1));
                     double totalPrice = orderItems.fold<double>(
-                        0, (sum, item) => sum + ((item['quantity'] ?? 1) * (item['price'] ?? 0.0)));
+                        0, (sum, item) => sum + ((item['quantity'] ?? 1) * (double.tryParse(item['price']?.toString() ?? '0') ?? 0.0)));
 
                     List<DataRow> rows = [
                       DataRow(
@@ -487,22 +489,19 @@ class _ReservationListPageState extends State<ReservationListPage> {
                           DataCell(Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
-                              Text(orderItems.length > 1
-                                  ? 'Bulk Order (${orderItems.length} items)'
-                                  : (orderItems.isNotEmpty ? orderItems[0]['label'] ?? 'No label' : 'No label')),
-                              if (orderItems.length > 1)
-                                IconButton(
-                                  icon: Icon(isExpanded ? Icons.expand_less : Icons.expand_more),
-                                  onPressed: () {
-                                    setState(() {
-                                      if (isExpanded) {
-                                        expandedBulkOrders.remove(reservation['orderId']);
-                                      } else {
-                                        expandedBulkOrders.add(reservation['orderId']);
-                                      }
-                                    });
-                                  },
-                                ),
+                              Text('Bulk Order (${orderItems.length} items)'),
+                              IconButton(
+                                icon: Icon(isExpanded ? Icons.expand_less : Icons.expand_more),
+                                onPressed: () {
+                                  setState(() {
+                                    if (isExpanded) {
+                                      expandedBulkOrders.remove(reservation['orderId']);
+                                    } else {
+                                      expandedBulkOrders.add(reservation['orderId']);
+                                    }
+                                  });
+                                },
+                              ),
                             ],
                           )),
                           DataCell(Text('')),
@@ -528,23 +527,27 @@ class _ReservationListPageState extends State<ReservationListPage> {
                       ),
                     ];
 
+                    // Expanded view for items in bulk orders
                     if (isExpanded) {
                       rows.addAll(orderItems.map<DataRow>((item) {
-                        double pricePerPiece = item['price'] ?? 0.0;
                         int itemQuantity = item['quantity'] ?? 1;
-                        double itemTotalPrice = pricePerPiece * itemQuantity;
+                        double pricePerPiece = double.tryParse(item['price']?.toString() ?? '0') ?? 0.0;
+                        double itemTotalPrice = double.tryParse(item['totalPrice']?.toString() ?? (pricePerPiece * itemQuantity).toString()) ?? 0.0;
+                        String itemLabel = item['label'] ?? 'No Label';
+                        String itemSize = item['itemSize'] ?? 'No Size';
+
                         return DataRow(
-                          key: ValueKey('${reservation['orderId']}_${item['label']}'),
+                          key: ValueKey('${reservation['orderId']}_${itemLabel}'),
                           cells: [
-                            DataCell(Text('')),
-                            DataCell(Text('')),
-                            DataCell(Text(item['label'] ?? 'No label')),
-                            DataCell(Text(item['itemSize'] ?? 'No Size')),
-                            DataCell(Text('${itemQuantity}')),
+                            DataCell(Text('')), // Empty for alignment
+                            DataCell(Text('')), // Empty for alignment
+                            DataCell(Text(itemLabel)),
+                            DataCell(Text(itemSize)),
+                            DataCell(Text('$itemQuantity')),
                             DataCell(Text('₱${pricePerPiece.toStringAsFixed(2)}')),
                             DataCell(Text('₱${itemTotalPrice.toStringAsFixed(2)}')),
-                            DataCell(Text('')),
-                            DataCell(Text('')),
+                            DataCell(Text('')), // Empty for alignment
+                            DataCell(Text('')), // Empty for alignment
                           ],
                         );
                       }).toList());

@@ -41,7 +41,7 @@ class _SettingsPageState extends State<SettingsPage> {
   String? _selectedItemCategory;
   String? _selectedCourseLabel;
   List<String> _categories = ["senior_high_items", "college_items", "Merch & Accessories"];
-  List<String> _courseLabels = ["BACOMM", "HRM & Culinary", "IT&CPE", "Tourism"];
+  List<String> _courseLabels = ["BACOMM", "BSA & BSBA", "HRM & Culinary", "IT&CPE", "Tourism"];
 
   final FirebaseFirestore firestore = FirebaseFirestore.instance;
 

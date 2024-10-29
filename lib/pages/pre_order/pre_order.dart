@@ -1,6 +1,10 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
+
 
 class PreOrderPage extends StatefulWidget {
   @override
@@ -29,12 +33,45 @@ class _PreOrderPageState extends State<PreOrderPage> {
     super.dispose();
   }
 
+  Future<void> _sendSMSToUser(String contactNumber, String studentName, String studentNumber, double totalAmount, List<Map<String, dynamic>> cartItems) async {
+    try {
+      String message = "Hello $studentName (Student ID: $studentNumber), your order has been placed successfully. Total amount: ₱$totalAmount. Items: ";
+
+      for (var item in cartItems) {
+        message += "${item['itemLabel']} (x${item['quantity']}), ";
+      }
+      message = message.trimRight().replaceAll(RegExp(r',\s*$'), '');
+
+      final response = await http.post(
+        Uri.parse('http://localhost:3000/send-sms'),
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode({
+          'apikey': dotenv.env['APIKEY'] ?? '',
+          'number': contactNumber,
+          'message': message,
+          'sendername': dotenv.env['SENDERNAME'] ?? 'Unistock',
+        }),
+      );
+
+      if (response.statusCode == 200) {
+        print("SMS sent successfully to $contactNumber");
+      } else {
+        print("Failed to send SMS: ${response.body}");
+      }
+    } catch (e) {
+      print("Error sending SMS: $e");
+    }
+  }
+
   Future<void> _approvePreOrder(Map<String, dynamic> preOrder) async {
     try {
       String userId = preOrder['userId'] ?? '';
       String orderId = preOrder['orderId'] ?? '';
       String userName = preOrder['userName'] ?? 'Unknown User';
       String studentId = preOrder['studentId'] ?? 'Unknown ID';
+      String contactNumber = preOrder['contactNumber'] ?? ''; // Ensure this exists
 
       print('Approving pre-order for userId: $userId, orderId: $orderId');
       print('Pre-order details: $preOrder');
@@ -62,16 +99,27 @@ class _PreOrderPageState extends State<PreOrderPage> {
         throw Exception('No items found in the pre-order');
       }
 
+      double totalAmount = 0.0; // Initialize total amount
+      List<Map<String, dynamic>> cartItems = [];
+
       for (var item in orderItems) {
         String label = (item['label'] ?? 'No Label').trim();
         String itemSize = (item['itemSize'] ?? 'Unknown Size').trim();
         String mainCategory = (item['category'] ?? '').trim();
         String subCategory = (item['courseLabel'] ?? '').trim();
         int quantity = item['quantity'] ?? 0;
+        double itemPrice = item['price'] ?? 0.0; // Assuming each item has a price
+        totalAmount += itemPrice * quantity; // Calculate total amount
 
         if (label.isEmpty || mainCategory.isEmpty || subCategory.isEmpty || quantity <= 0) {
           throw Exception('Invalid item data: missing label, category, subCategory, or quantity.');
         }
+
+        cartItems.add({
+          'itemLabel': label,
+          'quantity': quantity,
+          'price': itemPrice,
+        });
 
         await _firestore.collection('approved_items').add({
           'orderDate': orderDate,
@@ -101,6 +149,8 @@ class _PreOrderPageState extends State<PreOrderPage> {
       await _firestore.collection('users').doc(userId).collection('orders').doc(orderId).update({'status': 'approved'});
 
       await _sendNotificationToUser(userId, userName, preOrder);
+      await _sendSMSToUser(contactNumber, userName, studentId, totalAmount, cartItems); // Send SMS to user
+
       await _fetchAllPendingPreOrders();
 
       ScaffoldMessenger.of(context).showSnackBar(
@@ -202,60 +252,60 @@ class _PreOrderPageState extends State<PreOrderPage> {
           ? Center(child: CircularProgressIndicator())
           : SingleChildScrollView(
         controller: _verticalController,
-        child: SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          controller: _horizontalController,
+        child: Container(
+          width: double.infinity, // Make DataTable take full width
           child: DataTable(
-            columnSpacing: 16.0,
+            columnSpacing: 12.0, // Moderate column spacing
             headingRowColor: MaterialStateColor.resolveWith(
-                    (states) => Colors.grey.shade200),
+                  (states) => Colors.grey.shade200,
+            ),
             columns: [
               DataColumn(
                 label: Text(
                   'User Name',
-                  style: TextStyle(fontWeight: FontWeight.bold),
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
                 ),
               ),
               DataColumn(
                 label: Text(
                   'Item Label',
-                  style: TextStyle(fontWeight: FontWeight.bold),
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
                 ),
               ),
               DataColumn(
                 label: Text(
                   'Category',
-                  style: TextStyle(fontWeight: FontWeight.bold),
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
                 ),
               ),
               DataColumn(
                 label: Text(
                   'Course Label',
-                  style: TextStyle(fontWeight: FontWeight.bold),
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
                 ),
               ),
               DataColumn(
                 label: Text(
                   'Size',
-                  style: TextStyle(fontWeight: FontWeight.bold),
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
                 ),
               ),
               DataColumn(
                 label: Text(
                   'Quantity',
-                  style: TextStyle(fontWeight: FontWeight.bold),
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
                 ),
               ),
               DataColumn(
                 label: Text(
                   'Pre-Order Date',
-                  style: TextStyle(fontWeight: FontWeight.bold),
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
                 ),
               ),
               DataColumn(
                 label: Text(
                   'Actions',
-                  style: TextStyle(fontWeight: FontWeight.bold),
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
                 ),
               ),
             ],
@@ -264,18 +314,13 @@ class _PreOrderPageState extends State<PreOrderPage> {
               bool isBulkOrder = order['items'].length > 1;
 
               rows.add(DataRow(cells: [
-                DataCell(ConstrainedBox(
-                  constraints: BoxConstraints(maxWidth: 100),
-                  child: Text(order['userName'],
-                      overflow: TextOverflow.ellipsis),
-                )),
+                DataCell(Text(order['userName'], overflow: TextOverflow.ellipsis)),
                 DataCell(
                   isBulkOrder
                       ? InkWell(
                     onTap: () {
                       setState(() {
-                        if (expandedBulkOrders.contains(
-                            order['orderId'])) {
+                        if (expandedBulkOrders.contains(order['orderId'])) {
                           expandedBulkOrders.remove(order['orderId']);
                         } else {
                           expandedBulkOrders.add(order['orderId']);
@@ -284,75 +329,45 @@ class _PreOrderPageState extends State<PreOrderPage> {
                     },
                     child: Row(
                       children: [
-                        ConstrainedBox(
-                          constraints: BoxConstraints(maxWidth: 120),
-                          child: Text(order['label'],
-                              overflow: TextOverflow.ellipsis),
-                        ),
+                        Text(order['label'], overflow: TextOverflow.ellipsis),
                         Icon(
                           expandedBulkOrders.contains(order['orderId'])
                               ? Icons.expand_less
                               : Icons.expand_more,
+                          size: 16,
                         ),
                       ],
                     ),
                   )
-                      : ConstrainedBox(
-                    constraints: BoxConstraints(maxWidth: 120),
-                    child: Text(order['label'],
-                        overflow: TextOverflow.ellipsis),
-                  ),
+                      : Text(order['label'], overflow: TextOverflow.ellipsis),
                 ),
-                DataCell(ConstrainedBox(
-                  constraints: BoxConstraints(maxWidth: 100),
-                  child: Text(order['category'],
-                      overflow: TextOverflow.ellipsis),
-                )),
-                DataCell(ConstrainedBox(
-                  constraints: BoxConstraints(maxWidth: 100),
-                  child: Text(order['courseLabel'],
-                      overflow: TextOverflow.ellipsis),
-                )),
-                DataCell(ConstrainedBox(
-                  constraints: BoxConstraints(maxWidth: 50),
-                  child: Text(order['itemSize'],
-                      overflow: TextOverflow.ellipsis),
-                )),
+                DataCell(Text(order['category'], overflow: TextOverflow.ellipsis)),
+                DataCell(Text(order['courseLabel'], overflow: TextOverflow.ellipsis)),
+                DataCell(Text(order['itemSize'], overflow: TextOverflow.ellipsis)),
                 DataCell(Text(order['quantity'].toString())),
                 DataCell(Text(order['preOrderDate'])),
-                DataCell(ElevatedButton(
-                  onPressed: () {}, // Your action here
-                  child: Text("Approve"),
-                )),
+                DataCell(
+                  TextButton(
+                    onPressed: () {
+                      // Your action here
+                    },
+                    child: Text("Approve", style: TextStyle(fontSize: 12)),
+                  ),
+                ),
               ]));
 
+              // Additional rows for bulk orders
               if (isBulkOrder && expandedBulkOrders.contains(order['orderId'])) {
                 rows.addAll(order['items'].map<DataRow>((item) {
                   return DataRow(cells: [
                     DataCell(SizedBox()), // Empty cell for alignment
-                    DataCell(ConstrainedBox(
-                      constraints: BoxConstraints(maxWidth: 120),
-                      child: Text(item['label'],
-                          overflow: TextOverflow.ellipsis),
-                    )),
-                    DataCell(ConstrainedBox(
-                      constraints: BoxConstraints(maxWidth: 100),
-                      child: Text(item['category'],
-                          overflow: TextOverflow.ellipsis),
-                    )),
-                    DataCell(ConstrainedBox(
-                      constraints: BoxConstraints(maxWidth: 100),
-                      child: Text(item['courseLabel'],
-                          overflow: TextOverflow.ellipsis),
-                    )),
-                    DataCell(ConstrainedBox(
-                      constraints: BoxConstraints(maxWidth: 50),
-                      child: Text(item['itemSize'],
-                          overflow: TextOverflow.ellipsis),
-                    )),
+                    DataCell(Text(item['label'], overflow: TextOverflow.ellipsis)),
+                    DataCell(Text(item['category'], overflow: TextOverflow.ellipsis)),
+                    DataCell(Text(item['courseLabel'], overflow: TextOverflow.ellipsis)),
+                    DataCell(Text(item['itemSize'], overflow: TextOverflow.ellipsis)),
                     DataCell(Text(item['quantity'].toString())),
-                    DataCell(SizedBox()),
-                    DataCell(SizedBox()),
+                    DataCell(SizedBox()), // Empty cell for alignment
+                    DataCell(SizedBox()), // Empty cell for alignment
                   ]);
                 }).toList());
               }

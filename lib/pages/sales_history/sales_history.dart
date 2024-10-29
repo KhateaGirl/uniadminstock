@@ -17,7 +17,6 @@ class _SalesHistoryPageState extends State<SalesHistoryPage> {
   final ScrollController _verticalController = ScrollController();
   final ScrollController _horizontalController = ScrollController();
 
-  // Function to format the date (removes milliseconds)
   String _formatDate(Timestamp timestamp) {
     DateTime date = timestamp.toDate();
     return DateFormat('yyyy-MM-dd HH:mm:ss').format(date);
