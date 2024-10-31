@@ -71,7 +71,7 @@ class _PreOrderPageState extends State<PreOrderPage> {
       String orderId = preOrder['orderId'] ?? '';
       String userName = preOrder['userName'] ?? 'Unknown User';
       String studentId = preOrder['studentId'] ?? 'Unknown ID';
-      String contactNumber = preOrder['contactNumber'] ?? ''; // Ensure this exists
+      String contactNumber = preOrder['contactNumber'] ?? '';
 
       print('Approving pre-order for userId: $userId, orderId: $orderId');
       print('Pre-order details: $preOrder');
@@ -83,7 +83,7 @@ class _PreOrderPageState extends State<PreOrderPage> {
       DocumentSnapshot orderDoc = await _firestore
           .collection('users')
           .doc(userId)
-          .collection('orders')
+          .collection('preorders')
           .doc(orderId)
           .get();
 
@@ -91,15 +91,16 @@ class _PreOrderPageState extends State<PreOrderPage> {
         throw Exception('Order not found');
       }
 
-      Timestamp orderDate = orderDoc['orderDate'] ?? Timestamp.now();
-      print('Order date: $orderDate');
-
+      Map<String, dynamic> orderData = orderDoc.data() as Map<String, dynamic>;
+      orderData['status'] = 'approved';
+      Timestamp orderDate = orderDoc['preOrderDate'] ?? Timestamp.now();
       List<dynamic> orderItems = preOrder['items'] ?? [];
+
       if (orderItems.isEmpty) {
         throw Exception('No items found in the pre-order');
       }
 
-      double totalAmount = 0.0; // Initialize total amount
+      double totalAmount = 0.0;
       List<Map<String, dynamic>> cartItems = [];
 
       for (var item in orderItems) {
@@ -108,8 +109,8 @@ class _PreOrderPageState extends State<PreOrderPage> {
         String mainCategory = (item['category'] ?? '').trim();
         String subCategory = (item['courseLabel'] ?? '').trim();
         int quantity = item['quantity'] ?? 0;
-        double itemPrice = item['price'] ?? 0.0; // Assuming each item has a price
-        totalAmount += itemPrice * quantity; // Calculate total amount
+        double itemPrice = item['price'] ?? 0.0;
+        totalAmount += itemPrice * quantity;
 
         if (label.isEmpty || mainCategory.isEmpty || subCategory.isEmpty || quantity <= 0) {
           throw Exception('Invalid item data: missing label, category, subCategory, or quantity.');
@@ -120,36 +121,26 @@ class _PreOrderPageState extends State<PreOrderPage> {
           'quantity': quantity,
           'price': itemPrice,
         });
-
-        await _firestore.collection('approved_items').add({
-          'orderDate': orderDate,
-          'approvalDate': FieldValue.serverTimestamp(),
-          'label': label,
-          'itemSize': itemSize,
-          'quantity': quantity,
-          'name': userName,
-          'mainCategory': mainCategory,
-          'subCategory': subCategory,
-        });
-
-        await _firestore.collection('admin_transactions').add({
-          'cartItemRef': orderId,
-          'category': mainCategory,
-          'courseLabel': subCategory,
-          'label': label,
-          'itemSize': itemSize,
-          'quantity': quantity,
-          'studentNumber': studentId,
-          'timestamp': FieldValue.serverTimestamp(),
-          'userId': userId,
-          'userName': userName,
-        });
       }
 
-      await _firestore.collection('users').doc(userId).collection('orders').doc(orderId).update({'status': 'approved'});
+      await _firestore
+          .collection('approved_preorders')
+          .doc(orderId)
+          .set({
+        'userId': userId,
+        ...orderData,
+      });
+
+
+      await _firestore
+          .collection('users')
+          .doc(userId)
+          .collection('preorders')
+          .doc(orderId)
+          .delete();
 
       await _sendNotificationToUser(userId, userName, preOrder);
-      await _sendSMSToUser(contactNumber, userName, studentId, totalAmount, cartItems); // Send SMS to user
+      await _sendSMSToUser(contactNumber, userName, studentId, totalAmount, cartItems);
 
       await _fetchAllPendingPreOrders();
 
@@ -217,6 +208,7 @@ class _PreOrderPageState extends State<PreOrderPage> {
         String preOrderDate = DateFormat('yyyy-MM-dd').format((preOrderData['preOrderDate'] as Timestamp).toDate());
 
         pendingPreOrders.add({
+          'userId': userDoc.id,
           'userName': userName,
           'studentId': studentId,
           'label': label,
@@ -225,14 +217,13 @@ class _PreOrderPageState extends State<PreOrderPage> {
           'itemSize': items.length > 1 ? 'Various' : items[0]['itemSize'],
           'quantity': items.length > 1 ? items.map((e) => e['quantity'] as int).reduce((a, b) => a + b) : items[0]['quantity'],
           'preOrderDate': preOrderDate,
-          'items': items, // Keep items for detailed view
-          'preOrderTimestamp': preOrderData['preOrderDate'] as Timestamp, // Keep timestamp for sorting
+          'items': items,
+          'preOrderTimestamp': preOrderData['preOrderDate'] as Timestamp,
           'orderId': preorderDoc.id,
         });
       }
     }
 
-    // Sort pendingPreOrders by preOrderTimestamp in descending order
     pendingPreOrders.sort((a, b) => b['preOrderTimestamp'].compareTo(a['preOrderTimestamp']));
 
     setState(() {
@@ -253,9 +244,9 @@ class _PreOrderPageState extends State<PreOrderPage> {
           : SingleChildScrollView(
         controller: _verticalController,
         child: Container(
-          width: double.infinity, // Make DataTable take full width
+          width: double.infinity,
           child: DataTable(
-            columnSpacing: 12.0, // Moderate column spacing
+            columnSpacing: 12.0,
             headingRowColor: MaterialStateColor.resolveWith(
                   (states) => Colors.grey.shade200,
             ),
@@ -348,26 +339,26 @@ class _PreOrderPageState extends State<PreOrderPage> {
                 DataCell(Text(order['preOrderDate'])),
                 DataCell(
                   TextButton(
-                    onPressed: () {
-                      // Your action here
-                    },
+                    onPressed: () => _approvePreOrder(order),
                     child: Text("Approve", style: TextStyle(fontSize: 12)),
+                    style: TextButton.styleFrom(
+                      padding: EdgeInsets.symmetric(horizontal: 16.0),
+                    ),
                   ),
                 ),
               ]));
 
-              // Additional rows for bulk orders
               if (isBulkOrder && expandedBulkOrders.contains(order['orderId'])) {
                 rows.addAll(order['items'].map<DataRow>((item) {
                   return DataRow(cells: [
-                    DataCell(SizedBox()), // Empty cell for alignment
+                    DataCell(SizedBox()),
                     DataCell(Text(item['label'], overflow: TextOverflow.ellipsis)),
                     DataCell(Text(item['category'], overflow: TextOverflow.ellipsis)),
                     DataCell(Text(item['courseLabel'], overflow: TextOverflow.ellipsis)),
                     DataCell(Text(item['itemSize'], overflow: TextOverflow.ellipsis)),
                     DataCell(Text(item['quantity'].toString())),
-                    DataCell(SizedBox()), // Empty cell for alignment
-                    DataCell(SizedBox()), // Empty cell for alignment
+                    DataCell(SizedBox()),
+                    DataCell(SizedBox()),
                   ]);
                 }).toList());
               }
