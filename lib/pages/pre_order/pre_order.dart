@@ -35,7 +35,7 @@ class _PreOrderPageState extends State<PreOrderPage> {
 
   Future<void> _sendSMSToUser(String contactNumber, String studentName, String studentNumber, double totalAmount, List<Map<String, dynamic>> cartItems) async {
     try {
-      String message = "Hello $studentName (Student ID: $studentNumber), your order has been placed successfully. Total amount: ₱$totalAmount. Items: ";
+      String message = "Hello $studentName (Student ID: $studentNumber), your pre-order has been approved. Items: ";
 
       for (var item in cartItems) {
         message += "${item['itemLabel']} (x${item['quantity']}), ";
@@ -71,7 +71,6 @@ class _PreOrderPageState extends State<PreOrderPage> {
       String orderId = preOrder['orderId'] ?? '';
       String userName = preOrder['userName'] ?? 'Unknown User';
       String studentId = preOrder['studentId'] ?? 'Unknown ID';
-      String contactNumber = preOrder['contactNumber'] ?? '';
 
       print('Approving pre-order for userId: $userId, orderId: $orderId');
       print('Pre-order details: $preOrder');
@@ -79,6 +78,16 @@ class _PreOrderPageState extends State<PreOrderPage> {
       if (userId.isEmpty || orderId.isEmpty) {
         throw Exception('Invalid pre-order data: userId or orderId is missing.');
       }
+
+      // Fetch the user's profile to get the contact number
+      DocumentSnapshot userDoc = await _firestore.collection('users').doc(userId).get();
+      if (!userDoc.exists || userDoc['contactNumber'] == null) {
+        throw Exception('User profile not found or contact number is missing.');
+      }
+
+      // Get the contact number from the user's document
+      String contactNumber = userDoc['contactNumber'];
+      print('Fetched contact number: $contactNumber');
 
       DocumentSnapshot orderDoc = await _firestore
           .collection('users')
@@ -100,7 +109,6 @@ class _PreOrderPageState extends State<PreOrderPage> {
         throw Exception('No items found in the pre-order');
       }
 
-      double totalAmount = 0.0;
       List<Map<String, dynamic>> cartItems = [];
 
       for (var item in orderItems) {
@@ -109,8 +117,6 @@ class _PreOrderPageState extends State<PreOrderPage> {
         String mainCategory = (item['category'] ?? '').trim();
         String subCategory = (item['courseLabel'] ?? '').trim();
         int quantity = item['quantity'] ?? 0;
-        double itemPrice = item['price'] ?? 0.0;
-        totalAmount += itemPrice * quantity;
 
         if (label.isEmpty || mainCategory.isEmpty || subCategory.isEmpty || quantity <= 0) {
           throw Exception('Invalid item data: missing label, category, subCategory, or quantity.');
@@ -119,7 +125,6 @@ class _PreOrderPageState extends State<PreOrderPage> {
         cartItems.add({
           'itemLabel': label,
           'quantity': quantity,
-          'price': itemPrice,
         });
       }
 
@@ -131,7 +136,6 @@ class _PreOrderPageState extends State<PreOrderPage> {
         ...orderData,
       });
 
-
       await _firestore
           .collection('users')
           .doc(userId)
@@ -139,8 +143,8 @@ class _PreOrderPageState extends State<PreOrderPage> {
           .doc(orderId)
           .delete();
 
-      await _sendNotificationToUser(userId, userName, preOrder);
-      await _sendSMSToUser(contactNumber, userName, studentId, totalAmount, cartItems);
+      // Send SMS with fetched contact number, excluding totalAmount
+      await _sendSMSToUser(contactNumber, userName, studentId, cartItems);
 
       await _fetchAllPendingPreOrders();
 
@@ -159,23 +163,6 @@ class _PreOrderPageState extends State<PreOrderPage> {
           backgroundColor: Colors.red,
         ),
       );
-    }
-  }
-
-  Future<void> _sendNotificationToUser(String userId, String userName, Map<String, dynamic> preOrder) async {
-    try {
-      String itemNames = preOrder['items'].map((e) => e['label']).join(", ");
-      String message = "Hello $userName, your pre-order for $itemNames has been approved.";
-
-      await _firestore.collection('users').doc(userId).collection('notifications').add({
-        'message': message,
-        'timestamp': FieldValue.serverTimestamp(),
-        'status': 'unread',
-      });
-
-      print("Notification sent to user: $userName");
-    } catch (e) {
-      print("Failed to send notification: $e");
     }
   }
 

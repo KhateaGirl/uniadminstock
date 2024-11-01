@@ -23,6 +23,7 @@ class _SettingsPageState extends State<SettingsPage> {
   TextEditingController _itemSizeController = TextEditingController();
   TextEditingController _itemQuantityController = TextEditingController();
 
+  bool _isPasswordVisible = false;
   bool _isLoading = false;
   bool _isAnnouncementImageUploading = false;
   bool _isItemImageUploading = false;
@@ -426,8 +427,20 @@ class _SettingsPageState extends State<SettingsPage> {
                     SizedBox(height: 20),
                     TextFormField(
                       controller: _passwordController,
-                      decoration: InputDecoration(labelText: 'Password'),
-                      obscureText: true,
+                      decoration: InputDecoration(
+                        labelText: 'Password',
+                        suffixIcon: IconButton(
+                          icon: Icon(
+                            _isPasswordVisible ? Icons.visibility : Icons.visibility_off,
+                          ),
+                          onPressed: () {
+                            setState(() {
+                              _isPasswordVisible = !_isPasswordVisible; // Toggle visibility
+                            });
+                          },
+                        ),
+                      ),
+                      obscureText: !_isPasswordVisible,
                       validator: (value) => value == null || value.isEmpty ? 'Please enter a password' : null,
                     ),
                     SizedBox(height: 20),
