@@ -33,7 +33,7 @@ class _PreOrderPageState extends State<PreOrderPage> {
     super.dispose();
   }
 
-  Future<void> _sendSMSToUser(String contactNumber, String studentName, String studentNumber, double totalAmount, List<Map<String, dynamic>> cartItems) async {
+  Future<void> _sendSMSToUser(String contactNumber, String studentName, String studentNumber, List<Map<String, dynamic>> cartItems) async {
     try {
       String message = "Hello $studentName (Student ID: $studentNumber), your pre-order has been approved. Items: ";
 
@@ -228,129 +228,146 @@ class _PreOrderPageState extends State<PreOrderPage> {
       ),
       body: isLoading
           ? Center(child: CircularProgressIndicator())
-          : SingleChildScrollView(
+          : Scrollbar(
         controller: _verticalController,
-        child: Container(
-          width: double.infinity,
-          child: DataTable(
-            columnSpacing: 12.0,
-            headingRowColor: MaterialStateColor.resolveWith(
-                  (states) => Colors.grey.shade200,
-            ),
-            columns: [
-              DataColumn(
-                label: Text(
-                  'User Name',
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+        thumbVisibility: true,
+        interactive: true,
+        child: SingleChildScrollView(
+          controller: _verticalController,
+          scrollDirection: Axis.vertical,
+          child: Scrollbar(
+            controller: _horizontalController,
+            thumbVisibility: true,
+            interactive: true,
+            child: SingleChildScrollView(
+              controller: _horizontalController,
+              scrollDirection: Axis.horizontal,
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  minWidth: MediaQuery.of(context).size.width,
                 ),
-              ),
-              DataColumn(
-                label: Text(
-                  'Item Label',
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-                ),
-              ),
-              DataColumn(
-                label: Text(
-                  'Category',
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-                ),
-              ),
-              DataColumn(
-                label: Text(
-                  'Course Label',
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-                ),
-              ),
-              DataColumn(
-                label: Text(
-                  'Size',
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-                ),
-              ),
-              DataColumn(
-                label: Text(
-                  'Quantity',
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-                ),
-              ),
-              DataColumn(
-                label: Text(
-                  'Pre-Order Date',
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-                ),
-              ),
-              DataColumn(
-                label: Text(
-                  'Actions',
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-                ),
-              ),
-            ],
-            rows: allPendingPreOrders.expand((order) {
-              List<DataRow> rows = [];
-              bool isBulkOrder = order['items'].length > 1;
-
-              rows.add(DataRow(cells: [
-                DataCell(Text(order['userName'], overflow: TextOverflow.ellipsis)),
-                DataCell(
-                  isBulkOrder
-                      ? InkWell(
-                    onTap: () {
-                      setState(() {
-                        if (expandedBulkOrders.contains(order['orderId'])) {
-                          expandedBulkOrders.remove(order['orderId']);
-                        } else {
-                          expandedBulkOrders.add(order['orderId']);
-                        }
-                      });
-                    },
-                    child: Row(
-                      children: [
-                        Text(order['label'], overflow: TextOverflow.ellipsis),
-                        Icon(
-                          expandedBulkOrders.contains(order['orderId'])
-                              ? Icons.expand_less
-                              : Icons.expand_more,
-                          size: 16,
-                        ),
-                      ],
-                    ),
-                  )
-                      : Text(order['label'], overflow: TextOverflow.ellipsis),
-                ),
-                DataCell(Text(order['category'], overflow: TextOverflow.ellipsis)),
-                DataCell(Text(order['courseLabel'], overflow: TextOverflow.ellipsis)),
-                DataCell(Text(order['itemSize'], overflow: TextOverflow.ellipsis)),
-                DataCell(Text(order['quantity'].toString())),
-                DataCell(Text(order['preOrderDate'])),
-                DataCell(
-                  TextButton(
-                    onPressed: () => _approvePreOrder(order),
-                    child: Text("Approve", style: TextStyle(fontSize: 12)),
-                    style: TextButton.styleFrom(
-                      padding: EdgeInsets.symmetric(horizontal: 16.0),
-                    ),
+                child: DataTable(
+                  columnSpacing: 12.0,
+                  headingRowColor: MaterialStateColor.resolveWith(
+                        (states) => Colors.grey.shade200,
                   ),
-                ),
-              ]));
+                  columns: [
+                    DataColumn(
+                      label: Text(
+                        'User Name',
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                      ),
+                    ),
+                    DataColumn(
+                      label: Text(
+                        'Item Label',
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                      ),
+                    ),
+                    DataColumn(
+                      label: Text(
+                        'Category',
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                      ),
+                    ),
+                    DataColumn(
+                      label: Text(
+                        'Course Label',
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                      ),
+                    ),
+                    DataColumn(
+                      label: Text(
+                        'Size',
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                      ),
+                    ),
+                    DataColumn(
+                      label: Text(
+                        'Quantity',
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                      ),
+                    ),
+                    DataColumn(
+                      label: Text(
+                        'Pre-Order Date',
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                      ),
+                    ),
+                    DataColumn(
+                      label: Text(
+                        'Actions',
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                      ),
+                    ),
+                  ],
+                  rows: allPendingPreOrders.expand((order) {
+                    List<DataRow> rows = [];
+                    bool isBulkOrder = order['items'].length > 1;
 
-              if (isBulkOrder && expandedBulkOrders.contains(order['orderId'])) {
-                rows.addAll(order['items'].map<DataRow>((item) {
-                  return DataRow(cells: [
-                    DataCell(SizedBox()),
-                    DataCell(Text(item['label'], overflow: TextOverflow.ellipsis)),
-                    DataCell(Text(item['category'], overflow: TextOverflow.ellipsis)),
-                    DataCell(Text(item['courseLabel'], overflow: TextOverflow.ellipsis)),
-                    DataCell(Text(item['itemSize'], overflow: TextOverflow.ellipsis)),
-                    DataCell(Text(item['quantity'].toString())),
-                    DataCell(SizedBox()),
-                    DataCell(SizedBox()),
-                  ]);
-                }).toList());
-              }
-              return rows;
-            }).toList(),
+                    rows.add(DataRow(cells: [
+                      DataCell(Text(order['userName'], overflow: TextOverflow.ellipsis)),
+                      DataCell(
+                        isBulkOrder
+                            ? InkWell(
+                          onTap: () {
+                            setState(() {
+                              if (expandedBulkOrders.contains(order['orderId'])) {
+                                expandedBulkOrders.remove(order['orderId']);
+                              } else {
+                                expandedBulkOrders.add(order['orderId']);
+                              }
+                            });
+                          },
+                          child: Row(
+                            children: [
+                              Text(order['label'], overflow: TextOverflow.ellipsis),
+                              Icon(
+                                expandedBulkOrders.contains(order['orderId'])
+                                    ? Icons.expand_less
+                                    : Icons.expand_more,
+                                size: 16,
+                              ),
+                            ],
+                          ),
+                        )
+                            : Text(order['label'], overflow: TextOverflow.ellipsis),
+                      ),
+                      DataCell(Text(order['category'], overflow: TextOverflow.ellipsis)),
+                      DataCell(Text(order['courseLabel'], overflow: TextOverflow.ellipsis)),
+                      DataCell(Text(order['itemSize'], overflow: TextOverflow.ellipsis)),
+                      DataCell(Text(order['quantity'].toString())),
+                      DataCell(Text(order['preOrderDate'])),
+                      DataCell(
+                        TextButton(
+                          onPressed: () => _approvePreOrder(order),
+                          child: Text("Approve", style: TextStyle(fontSize: 12)),
+                          style: TextButton.styleFrom(
+                            padding: EdgeInsets.symmetric(horizontal: 16.0),
+                          ),
+                        ),
+                      ),
+                    ]));
+
+                    if (isBulkOrder && expandedBulkOrders.contains(order['orderId'])) {
+                      rows.addAll(order['items'].map<DataRow>((item) {
+                        return DataRow(cells: [
+                          DataCell(SizedBox()),
+                          DataCell(Text(item['label'], overflow: TextOverflow.ellipsis)),
+                          DataCell(Text(item['category'], overflow: TextOverflow.ellipsis)),
+                          DataCell(Text(item['courseLabel'], overflow: TextOverflow.ellipsis)),
+                          DataCell(Text(item['itemSize'], overflow: TextOverflow.ellipsis)),
+                          DataCell(Text(item['quantity'].toString())),
+                          DataCell(SizedBox()),
+                          DataCell(SizedBox()),
+                        ]);
+                      }).toList());
+                    }
+                    return rows;
+                  }).toList(),
+                ),
+              ),
+            ),
           ),
         ),
       ),
