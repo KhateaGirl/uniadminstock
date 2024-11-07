@@ -17,7 +17,8 @@ class _SalesHistoryPageState extends State<SalesHistoryPage> {
   final ScrollController _verticalController = ScrollController();
   final ScrollController _horizontalController = ScrollController();
 
-  String _formatDate(Timestamp timestamp) {
+  String _formatDate(Timestamp? timestamp) {
+    if (timestamp == null) return 'N/A';
     DateTime date = timestamp.toDate();
     return DateFormat('yyyy-MM-dd HH:mm:ss').format(date);
   }
@@ -62,7 +63,7 @@ class _SalesHistoryPageState extends State<SalesHistoryPage> {
                           pw.Text(saleItem['category'] ?? 'N/A'),
                           pw.Text(saleItem['userName'] ?? 'N/A'),
                           pw.Text(saleItem['studentNumber'] ?? 'N/A'),
-                          pw.Text(_formatDate(saleItem['timestamp'] as Timestamp)),
+                          pw.Text(_formatDate(saleItem['timestamp'] as Timestamp?)),
                         ],
                       );
                     }),
@@ -80,11 +81,73 @@ class _SalesHistoryPageState extends State<SalesHistoryPage> {
     );
   }
 
-  @override
-  void dispose() {
-    _verticalController.dispose();
-    _horizontalController.dispose();
-    super.dispose();
+  Future<List<Map<String, dynamic>>> _fetchSalesData() async {
+    List<Map<String, dynamic>> allSalesItems = [];
+
+    // Fetch from admin_transactions collection
+    QuerySnapshot adminTransactionsSnapshot = await _firestore
+        .collection('admin_transactions')
+        .orderBy('timestamp', descending: true)
+        .get();
+    adminTransactionsSnapshot.docs.forEach((transactionDoc) {
+      var transactionData = transactionDoc.data() as Map<String, dynamic>;
+
+      if (transactionData.containsKey('label') && transactionData.containsKey('quantity')) {
+        allSalesItems.add({
+          'itemLabel': transactionData['label'] ?? 'N/A',
+          'itemSize': transactionData['itemSize'] ?? 'N/A',
+          'quantity': transactionData['quantity'] ?? 0,
+          'category': transactionData['category'] ?? 'N/A',
+          'userName': transactionData['userName'] ?? 'N/A',
+          'studentNumber': transactionData['studentNumber'] ?? 'N/A',
+          'timestamp': transactionData['timestamp'],
+        });
+      }
+
+      if (transactionData['cartItems'] is List) {
+        List<dynamic> cartItems = transactionData['cartItems'];
+        for (var item in cartItems) {
+          allSalesItems.add({
+            'itemLabel': item['itemLabel'] ?? 'N/A',
+            'itemSize': item['itemSize'] ?? 'N/A',
+            'quantity': item['quantity'] ?? 0,
+            'category': item['category'] ?? 'N/A',
+            'userName': transactionData['userName'] ?? 'N/A',
+            'studentNumber': transactionData['studentNumber'] ?? 'N/A',
+            'timestamp': transactionData['timestamp'],
+          });
+        }
+      }
+    });
+
+    // Fetch from approved_preorders collection
+    QuerySnapshot approvedPreordersSnapshot = await _firestore.collection('approved_preorders').get();
+    print("Fetched ${approvedPreordersSnapshot.docs.length} documents from approved_preorders");
+
+    approvedPreordersSnapshot.docs.forEach((preorderDoc) {
+      var preorderData = preorderDoc.data() as Map<String, dynamic>;
+
+      if (preorderData['items'] is List) {
+        List<dynamic> items = preorderData['items'];
+        for (var item in items) {
+          print("Processing item in approved_preorders: ${item['label']}");
+          allSalesItems.add({
+            'itemLabel': item['label'] ?? 'N/A',
+            'itemSize': item['itemSize'] ?? 'N/A',
+            'quantity': item['quantity'] ?? 0,
+            'category': item['category'] ?? 'N/A',
+            'userName': preorderData['userName'] ?? 'N/A',
+            'studentNumber': preorderData['studentNumber'] ?? 'N/A',
+            'timestamp': preorderData['preOrderDate'] ?? Timestamp.now(),
+          });
+        }
+      }
+    });
+
+    // Sort by timestamp in descending order
+    allSalesItems.sort((a, b) => (b['timestamp'] as Timestamp).compareTo(a['timestamp'] as Timestamp));
+    print("Total sales items fetched: ${allSalesItems.length}");
+    return allSalesItems;
   }
 
   @override
@@ -100,65 +163,14 @@ class _SalesHistoryPageState extends State<SalesHistoryPage> {
             icon: Icon(Icons.refresh),
             onPressed: () {
               setState(() {
-                // Trigger a rebuild to refresh the stream
+                // Trigger a rebuild to refresh the data
               });
             },
           ),
           IconButton(
             icon: Icon(Icons.print),
             onPressed: () async {
-              // Fetch the sales data and pass it to the PDF generation function
-              QuerySnapshot snapshot = await _firestore
-                  .collection('admin_transactions')
-                  .orderBy('timestamp', descending: true)
-                  .get();
-              final transactions = snapshot.docs;
-
-              List<Map<String, dynamic>> allSalesItems = [];
-
-              transactions.forEach((transactionDoc) {
-                var transactionData = transactionDoc.data() as Map<String, dynamic>;
-
-                // Process top-level sales data (if exists)
-                if (transactionData.containsKey('label') &&
-                    transactionData.containsKey('quantity')) {
-                  Map<String, dynamic> topSaleItem = {
-                    'itemLabel': transactionData['label'] ?? 'N/A',
-                    'itemSize': transactionData['itemSize'] ?? 'N/A',
-                    'quantity': transactionData['quantity'] ?? 0,
-                    'category': transactionData['category'] ?? 'N/A',
-                    'userName': transactionData['userName'] ?? 'N/A',
-                    'studentNumber': transactionData['studentNumber'] ?? 'N/A',
-                    'timestamp': transactionData['timestamp'],
-                  };
-                  allSalesItems.add(topSaleItem);
-                }
-
-                // Check and process nested cartItems if present
-                if (transactionData['cartItems'] is List) {
-                  List<dynamic> cartItems = transactionData['cartItems'];
-
-                  for (var item in cartItems) {
-                    Map<String, dynamic> saleItem = {
-                      'itemLabel': item['itemLabel'] ?? 'N/A',
-                      'itemSize': item['itemSize'] ?? 'N/A',
-                      'quantity': item['quantity'] ?? 0,
-                      'category': item['category'] ?? 'N/A',
-                      'userName': transactionData['userName'] ?? 'N/A',
-                      'studentNumber': transactionData['studentNumber'] ?? 'N/A',
-                      'timestamp': transactionData['timestamp'],
-                    };
-
-                    allSalesItems.add(saleItem);
-                  }
-                }
-              });
-
-              // Debugging: Print the fetched data
-              print("Fetched ${allSalesItems.length} items from Firestore.");
-              allSalesItems.forEach((item) => print(item));
-
-              // Ensure that data is being passed to _generatePDF
+              final allSalesItems = await _fetchSalesData();
               if (allSalesItems.isNotEmpty) {
                 await _generatePDF(allSalesItems);
               } else {
@@ -168,66 +180,17 @@ class _SalesHistoryPageState extends State<SalesHistoryPage> {
           ),
         ],
       ),
-      body: StreamBuilder<QuerySnapshot>(
-        stream: _firestore
-            .collection('admin_transactions')
-            .orderBy('timestamp', descending: true)
-            .snapshots(),
+      body: FutureBuilder<List<Map<String, dynamic>>>(
+        future: _fetchSalesData(),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
-            return Center(
-              child: CircularProgressIndicator(),
-            );
+            return Center(child: CircularProgressIndicator());
           } else if (snapshot.hasError) {
-            return Center(
-              child: CustomText(text: "Error fetching sales history"),
-            );
-          } else if (snapshot.hasData && snapshot.data!.docs.isEmpty) {
-            return Center(
-              child: CustomText(text: "No sales history found"),
-            );
+            return Center(child: CustomText(text: "Error fetching sales history"));
+          } else if (snapshot.hasData && snapshot.data!.isEmpty) {
+            return Center(child: CustomText(text: "No sales history found"));
           } else if (snapshot.hasData) {
-            final transactions = snapshot.data!.docs;
-
-            List<Map<String, dynamic>> allSalesItems = [];
-
-            transactions.forEach((transactionDoc) {
-              var transactionData = transactionDoc.data() as Map<String, dynamic>;
-
-              // Process top-level sales data (if exists)
-              if (transactionData.containsKey('label') &&
-                  transactionData.containsKey('quantity')) {
-                Map<String, dynamic> topSaleItem = {
-                  'itemLabel': transactionData['label'] ?? 'N/A',
-                  'itemSize': transactionData['itemSize'] ?? 'N/A',
-                  'quantity': transactionData['quantity'] ?? 0,
-                  'category': transactionData['category'] ?? 'N/A',
-                  'userName': transactionData['userName'] ?? 'N/A',
-                  'studentNumber': transactionData['studentNumber'] ?? 'N/A',
-                  'timestamp': transactionData['timestamp'],
-                };
-                allSalesItems.add(topSaleItem);
-              }
-
-              // Check and process nested cartItems if present
-              if (transactionData['cartItems'] is List) {
-                List<dynamic> cartItems = transactionData['cartItems'];
-
-                for (var item in cartItems) {
-                  Map<String, dynamic> saleItem = {
-                    'itemLabel': item['itemLabel'] ?? 'N/A',
-                    'itemSize': item['itemSize'] ?? 'N/A',
-                    'quantity': item['quantity'] ?? 0,
-                    'category': item['category'] ?? 'N/A',
-                    'userName': transactionData['userName'] ?? 'N/A',
-                    'studentNumber': transactionData['studentNumber'] ?? 'N/A',
-                    'timestamp': transactionData['timestamp'],
-                  };
-
-                  allSalesItems.add(saleItem);
-                }
-              }
-            });
+            final allSalesItems = snapshot.data!;
 
             return Column(
               children: [
@@ -259,7 +222,7 @@ class _SalesHistoryPageState extends State<SalesHistoryPage> {
                               DataCell(Text(saleItem['category'] ?? 'N/A')),
                               DataCell(Text(saleItem['userName'] ?? 'N/A')),
                               DataCell(Text(saleItem['studentNumber'] ?? 'N/A')),
-                              DataCell(Text(_formatDate(saleItem['timestamp'] as Timestamp))),
+                              DataCell(Text(_formatDate(saleItem['timestamp'] as Timestamp?))),
                             ]);
                           }).toList(),
                         ),
@@ -286,9 +249,7 @@ class _SalesHistoryPageState extends State<SalesHistoryPage> {
               ],
             );
           } else {
-            return Center(
-              child: CustomText(text: "No data available"),
-            );
+            return Center(child: CustomText(text: "No data available"));
           }
         },
       ),

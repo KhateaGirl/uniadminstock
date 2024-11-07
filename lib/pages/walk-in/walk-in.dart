@@ -25,7 +25,7 @@ class _MainWalkInPageState extends State<WalkinPage> {
   Map<String, Map<String, dynamic>> _collegeStockQuantities = {};
   Map<String, Map<String, dynamic>> _merchStockQuantities = {};
 
-  List<String> _courseLabels = ['BACOMM', 'HRM & Culinary', 'IT&CPE', 'Tourism'];
+  List<String> _courseLabels = ['BACOMM', 'HRM & Culinary', 'IT&CPE', 'Tourism', 'BSA & BSBA'];
   List<String> _schoolLevels = ['College', 'Senior High'];
 
   bool _loading = true;

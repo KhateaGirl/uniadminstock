@@ -2,7 +2,6 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:unistock/widgets/custom_text.dart';
-import 'package:intl/intl.dart';
 
 class OverviewPage extends StatefulWidget {
   @override
@@ -19,6 +18,7 @@ class _OverviewPageState extends State<OverviewPage> {
 
   Map<String, double> _collegeSalesData = {};
   Map<String, double> _seniorHighSalesData = {};
+  Map<String, double> _merchSalesData = {};
 
   String _selectedPeriod = 'Overall';
 
@@ -44,29 +44,48 @@ class _OverviewPageState extends State<OverviewPage> {
 
   Future<void> _fetchLatestSale() async {
     try {
-      QuerySnapshot latestSaleSnapshot = await _firestore
+      // Fetch latest sale from admin_transactions
+      QuerySnapshot adminLatestSnapshot = await _firestore
           .collection('admin_transactions')
           .orderBy('timestamp', descending: true)
           .limit(1)
           .get();
 
-      if (latestSaleSnapshot.docs.isNotEmpty) {
-        var mostRecentDoc = latestSaleSnapshot.docs.first;
-        var latestTransaction = mostRecentDoc.data() as Map<String, dynamic>;
+      // Fetch latest preorder from approved_preorders
+      QuerySnapshot preorderLatestSnapshot = await _firestore
+          .collection('approved_preorders')
+          .orderBy('preOrderDate', descending: true)
+          .limit(1)
+          .get();
 
-        String latestLabel = latestTransaction['label'] ?? 'N/A';
+      String latestLabel = 'N/A';
+      Timestamp? latestTimestamp;
 
-        if (latestTransaction['cartItems'] is List) {
-          List<dynamic> cartItems = latestTransaction['cartItems'];
-          if (cartItems.isNotEmpty) {
-            latestLabel = cartItems.first['itemLabel'] ?? latestLabel;
-          }
+      if (adminLatestSnapshot.docs.isNotEmpty) {
+        var adminTransaction = adminLatestSnapshot.docs.first.data() as Map<String, dynamic>;
+        latestTimestamp = adminTransaction['timestamp'];
+        latestLabel = adminTransaction['label'] ?? 'N/A';
+
+        if (adminTransaction['cartItems'] is List && (adminTransaction['cartItems'] as List).isNotEmpty) {
+          latestLabel = adminTransaction['cartItems'][0]['itemLabel'] ?? latestLabel;
         }
-
-        setState(() {
-          _latestSale = latestLabel;
-        });
       }
+
+      if (preorderLatestSnapshot.docs.isNotEmpty) {
+        var preorderData = preorderLatestSnapshot.docs.first.data() as Map<String, dynamic>;
+        Timestamp preorderTimestamp = preorderData['preOrderDate'];
+        String preorderLabel = (preorderData['items'] as List)[0]['label'] ?? 'N/A';
+
+        // Check if this preorder is more recent
+        if (latestTimestamp == null || preorderTimestamp.compareTo(latestTimestamp) > 0) {
+          latestTimestamp = preorderTimestamp;
+          latestLabel = preorderLabel;
+        }
+      }
+
+      setState(() {
+        _latestSale = latestLabel;
+      });
     } catch (e) {
       print("Error fetching latest sale: $e");
     }
@@ -74,12 +93,14 @@ class _OverviewPageState extends State<OverviewPage> {
 
   Future<void> _fetchSalesStatistics() async {
     try {
-      QuerySnapshot salesSnapshot = await _firestore.collection('admin_transactions').get();
-
+      // Initialize sales maps
       Map<String, double> collegeSales = {};
       Map<String, double> seniorHighSales = {};
+      Map<String, double> merchSales = {};
 
-      for (var doc in salesSnapshot.docs) {
+      // Fetch from admin_transactions collection
+      QuerySnapshot adminTransactionsSnapshot = await _firestore.collection('admin_transactions').get();
+      for (var doc in adminTransactionsSnapshot.docs) {
         var transactionData = doc.data() as Map<String, dynamic>;
 
         if (transactionData['category'] != null && transactionData['quantity'] != null) {
@@ -92,12 +113,13 @@ class _OverviewPageState extends State<OverviewPage> {
             seniorHighSales[itemKey] = (seniorHighSales[itemKey] ?? 0) + quantity;
           } else if (category == 'college_items') {
             collegeSales[itemKey] = (collegeSales[itemKey] ?? 0) + quantity;
+          } else if (category == 'merch_and_accessories') {
+            merchSales[itemKey] = (merchSales[itemKey] ?? 0) + quantity;
           }
         }
 
         if (transactionData['cartItems'] is List) {
           List<dynamic> cartItems = transactionData['cartItems'];
-
           for (var item in cartItems) {
             String itemLabel = item['itemLabel'] ?? 'Unknown';
             double quantity = (item['quantity'] ?? 0).toDouble();
@@ -108,6 +130,32 @@ class _OverviewPageState extends State<OverviewPage> {
               seniorHighSales[itemKey] = (seniorHighSales[itemKey] ?? 0) + quantity;
             } else if (category == 'college_items') {
               collegeSales[itemKey] = (collegeSales[itemKey] ?? 0) + quantity;
+            } else if (category == 'merch_and_accessories') {
+              merchSales[itemKey] = (merchSales[itemKey] ?? 0) + quantity;
+            }
+          }
+        }
+      }
+
+      // Fetch from approved_preorders collection
+      QuerySnapshot approvedPreordersSnapshot = await _firestore.collection('approved_preorders').get();
+      for (var doc in approvedPreordersSnapshot.docs) {
+        var preorderData = doc.data() as Map<String, dynamic>;
+
+        if (preorderData['items'] is List) {
+          List<dynamic> items = preorderData['items'];
+          for (var item in items) {
+            String itemLabel = item['label'] ?? 'Unknown';
+            double quantity = (item['quantity'] ?? 0).toDouble();
+            String category = item['category'] ?? 'Unknown';
+            String itemKey = itemLabel;
+
+            if (category == 'senior_high_items') {
+              seniorHighSales[itemKey] = (seniorHighSales[itemKey] ?? 0) + quantity;
+            } else if (category == 'college_items') {
+              collegeSales[itemKey] = (collegeSales[itemKey] ?? 0) + quantity;
+            } else if (category == 'merch_and_accessories') {
+              merchSales[itemKey] = (merchSales[itemKey] ?? 0) + quantity;
             }
           }
         }
@@ -116,6 +164,7 @@ class _OverviewPageState extends State<OverviewPage> {
       setState(() {
         _collegeSalesData = collegeSales;
         _seniorHighSalesData = seniorHighSales;
+        _merchSalesData = merchSales;
       });
     } catch (e) {
       print("Error fetching sales statistics: $e");
@@ -124,12 +173,12 @@ class _OverviewPageState extends State<OverviewPage> {
 
   Future<void> _fetchTotalRevenueAndSales() async {
     try {
-      QuerySnapshot salesSnapshot = await _firestore.collection('approved_items').get();
-
       double totalRevenue = 0.0;
       int totalSales = 0;
 
-      for (var doc in salesSnapshot.docs) {
+      // Fetch from approved_items collection
+      QuerySnapshot approvedItemsSnapshot = await _firestore.collection('approved_items').get();
+      for (var doc in approvedItemsSnapshot.docs) {
         var sale = doc.data() as Map<String, dynamic>;
 
         int quantity = sale['quantity'] ?? 0;
@@ -144,6 +193,22 @@ class _OverviewPageState extends State<OverviewPage> {
             double itemPrice = item['pricePerPiece'] ?? 0.0;
             totalRevenue += itemQuantity * itemPrice;
             totalSales += itemQuantity;
+          }
+        }
+      }
+
+      // Fetch from approved_preorders collection
+      QuerySnapshot approvedPreordersSnapshot = await _firestore.collection('approved_preorders').get();
+      for (var doc in approvedPreordersSnapshot.docs) {
+        var preorderData = doc.data() as Map<String, dynamic>;
+
+        if (preorderData['items'] is List) {
+          List<dynamic> items = preorderData['items'];
+          for (var item in items) {
+            int quantity = item['quantity'] ?? 0;
+            double price = item['price'] ?? 0.0;
+            totalRevenue += quantity * price;
+            totalSales += quantity;
           }
         }
       }
@@ -167,7 +232,7 @@ class _OverviewPageState extends State<OverviewPage> {
           IconButton(
             icon: Icon(Icons.refresh),
             onPressed: () {
-              _fetchData(); // Refresh data when the button is pressed
+              _fetchData();
             },
           ),
         ],
@@ -177,7 +242,7 @@ class _OverviewPageState extends State<OverviewPage> {
           : SingleChildScrollView(
         padding: const EdgeInsets.all(16.0),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.center, // Center items horizontally
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
             CustomText(text: "Sales Overview", size: 24, weight: FontWeight.bold),
             SizedBox(height: 20),
@@ -191,7 +256,7 @@ class _OverviewPageState extends State<OverviewPage> {
               ],
             ),
             SizedBox(height: 30),
-            Center( // Center the Sales Statistics title
+            Center(
               child: CustomText(text: "Sales Statistics", size: 18, weight: FontWeight.bold),
             ),
             SizedBox(height: 10),
@@ -209,6 +274,15 @@ class _OverviewPageState extends State<OverviewPage> {
                 children: [
                   CustomText(text: "Senior High Sales", size: 18, weight: FontWeight.bold),
                   _buildMiniChartWithLegend(_seniorHighSalesData),
+                ],
+              ),
+            ),
+            SizedBox(height: 20),
+            Center(
+              child: Column(
+                children: [
+                  CustomText(text: "Merch & Accessories Sales", size: 18, weight: FontWeight.bold),
+                  _buildMiniChartWithLegend(_merchSalesData),
                 ],
               ),
             ),
@@ -252,8 +326,8 @@ class _OverviewPageState extends State<OverviewPage> {
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           SizedBox(
-            width: 350, // Increased width to make the chart larger
-            height: 350, // Increased height to make the chart larger
+            width: 350,
+            height: 350,
             child: PieChart(
               PieChartData(
                 sections: salesData.entries.map((entry) {
@@ -261,10 +335,10 @@ class _OverviewPageState extends State<OverviewPage> {
                     color: _getDistinctColor(entry.key),
                     value: entry.value,
                     title: '${entry.value.toInt()}',
-                    radius: 90, // Increase for thicker slices
+                    radius: 90,
                   );
                 }).toList(),
-                centerSpaceRadius: 35, // Adjust for smaller/larger inner space
+                centerSpaceRadius: 35,
                 sectionsSpace: 2,
               ),
             ),
