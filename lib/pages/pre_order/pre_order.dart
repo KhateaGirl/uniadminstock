@@ -35,12 +35,18 @@ class _PreOrderPageState extends State<PreOrderPage> {
 
   Future<void> _sendSMSToUser(String contactNumber, String studentName, String studentNumber, List<Map<String, dynamic>> cartItems) async {
     try {
+      double totalPrice = 0.0;
       String message = "Hello $studentName (Student ID: $studentNumber), your pre-order has been approved. Items: ";
 
       for (var item in cartItems) {
-        message += "${item['itemLabel']} (x${item['quantity']}), ";
+        String label = item['itemLabel'];
+        int quantity = item['quantity'];
+        double price = item['price'] ?? 0.0;
+        totalPrice += price * quantity;
+        message += "$label (x$quantity) - ₱${(price * quantity).toStringAsFixed(2)}, ";
       }
       message = message.trimRight().replaceAll(RegExp(r',\s*$'), '');
+      message += ". Total Price: ₱${totalPrice.toStringAsFixed(2)}";
 
       final response = await http.post(
         Uri.parse('http://localhost:3000/send-sms'),
@@ -62,6 +68,35 @@ class _PreOrderPageState extends State<PreOrderPage> {
       }
     } catch (e) {
       print("Error sending SMS: $e");
+    }
+  }
+
+  Future<void> _sendNotificationToUser(String userId, String userName, Map<String, dynamic> preOrder) async {
+    try {
+      List<String> itemDetails = [];
+      double totalPrice = 0.0;
+
+      for (var item in preOrder['items']) {
+        String label = item['label'];
+        int quantity = item['quantity'];
+        double price = item['price'] ?? 0.0;
+        totalPrice += price * quantity;
+        itemDetails.add("$label (x$quantity) - ₱${(price * quantity).toStringAsFixed(2)}");
+      }
+
+      String itemNames = itemDetails.join(", ");
+      String message = "Hello $userName, your pre-order for $itemNames has been approved. Total Price: ₱${totalPrice.toStringAsFixed(2)}.";
+
+      await _firestore.collection('users').doc(userId).collection('notifications').add({
+        'title': 'Pre-order approved',
+        'message': message,
+        'timestamp': FieldValue.serverTimestamp(),
+        'status': 'unread',
+      });
+
+      print("Notification sent to user: $userName");
+    } catch (e) {
+      print("Failed to send notification: $e");
     }
   }
 
@@ -113,13 +148,10 @@ class _PreOrderPageState extends State<PreOrderPage> {
 
       for (var item in orderItems) {
         String label = (item['label'] ?? 'No Label').trim();
-        String itemSize = (item['itemSize'] ?? 'Unknown Size').trim();
-        String mainCategory = (item['category'] ?? '').trim();
-        String subCategory = (item['courseLabel'] ?? '').trim();
         int quantity = item['quantity'] ?? 0;
 
-        if (label.isEmpty || mainCategory.isEmpty || subCategory.isEmpty || quantity <= 0) {
-          throw Exception('Invalid item data: missing label, category, subCategory, or quantity.');
+        if (label.isEmpty || quantity <= 0) {
+          throw Exception('Invalid item data: missing label or quantity.');
         }
 
         cartItems.add({
@@ -145,6 +177,9 @@ class _PreOrderPageState extends State<PreOrderPage> {
 
       // Send SMS with fetched contact number, excluding totalAmount
       await _sendSMSToUser(contactNumber, userName, studentId, cartItems);
+
+      // Send a notification to the user
+      await _sendNotificationToUser(userId, userName, preOrder);
 
       await _fetchAllPendingPreOrders();
 

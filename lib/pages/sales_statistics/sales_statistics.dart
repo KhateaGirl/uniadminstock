@@ -12,6 +12,7 @@ class _SalesStatisticsPageState extends State<SalesStatisticsPage> {
   bool _isLoading = true;
   Map<String, double> _collegeSalesData = {};
   Map<String, double> _seniorHighSalesData = {};
+  Map<String, double> _merchSalesData = {};
   String _selectedPeriod = 'Overall';
 
   @override
@@ -41,39 +42,36 @@ class _SalesStatisticsPageState extends State<SalesStatisticsPage> {
 
   Future<void> _fetchSalesData() async {
     try {
-      QuerySnapshot salesSnapshot;
+      Map<String, double> collegeSales = {};
+      Map<String, double> seniorHighSales = {};
+      Map<String, double> merchSales = {};
+
       DateTime now = DateTime.now();
       DateTime startDate;
 
-      // Determine the start date based on the selected period
       if (_selectedPeriod == 'Weekly') {
         startDate = now.subtract(Duration(days: 7));
       } else if (_selectedPeriod == 'Monthly') {
         startDate = DateTime(now.year, now.month - 1, now.day);
       } else {
-        startDate = DateTime(1970); // Fetch all data for "Overall"
+        startDate = DateTime(1970);
       }
 
       Timestamp firestoreStartDate = Timestamp.fromDate(startDate);
 
-      // Fetch the sales data based on the selected period
+      QuerySnapshot adminTransactionsSnapshot;
       if (_selectedPeriod == 'Overall') {
-        salesSnapshot = await _firestore.collection('admin_transactions').get();
+        adminTransactionsSnapshot = await _firestore.collection('admin_transactions').get();
       } else {
-        salesSnapshot = await _firestore
+        adminTransactionsSnapshot = await _firestore
             .collection('admin_transactions')
             .where('timestamp', isGreaterThanOrEqualTo: firestoreStartDate)
             .get();
       }
 
-      Map<String, double> collegeSales = {};
-      Map<String, double> seniorHighSales = {};
-
-      // Process sales data from admin_transactions collection
-      for (var doc in salesSnapshot.docs) {
+      for (var doc in adminTransactionsSnapshot.docs) {
         var transactionData = doc.data() as Map<String, dynamic>;
 
-        // Process top-level fields
         if (transactionData['category'] != null && transactionData['quantity'] != null) {
           String itemLabel = transactionData['label'] ?? 'Unknown';
           String itemSize = transactionData['itemSize'] ?? 'Unknown';
@@ -82,18 +80,16 @@ class _SalesStatisticsPageState extends State<SalesStatisticsPage> {
           String itemKey = '$itemLabel ($itemSize)';
 
           if (category == 'senior_high_items' || category == 'Uniform') {
-            // Senior High sales
             seniorHighSales[itemKey] = (seniorHighSales[itemKey] ?? 0) + quantity;
           } else if (category == 'college_items') {
-            // College sales
             collegeSales[itemKey] = (collegeSales[itemKey] ?? 0) + quantity;
+          } else if (category == 'merch_and_accessories') {
+            merchSales[itemKey] = (merchSales[itemKey] ?? 0) + quantity;
           }
         }
 
-        // Process nested `cartItems`
         if (transactionData['cartItems'] is List) {
           List<dynamic> cartItems = transactionData['cartItems'];
-
           for (var item in cartItems) {
             String itemLabel = item['itemLabel'] ?? 'Unknown';
             String itemSize = item['itemSize'] ?? 'Unknown';
@@ -102,11 +98,35 @@ class _SalesStatisticsPageState extends State<SalesStatisticsPage> {
             String itemKey = '$itemLabel ($itemSize)';
 
             if (category == 'senior_high_items' || category == 'Uniform') {
-              // Senior High sales
               seniorHighSales[itemKey] = (seniorHighSales[itemKey] ?? 0) + quantity;
             } else if (category == 'college_items') {
-              // College sales
               collegeSales[itemKey] = (collegeSales[itemKey] ?? 0) + quantity;
+            } else if (category == 'merch_and_accessories') {
+              merchSales[itemKey] = (merchSales[itemKey] ?? 0) + quantity;
+            }
+          }
+        }
+      }
+
+      QuerySnapshot approvedPreordersSnapshot = await _firestore.collection('approved_preorders').get();
+      for (var doc in approvedPreordersSnapshot.docs) {
+        var preorderData = doc.data() as Map<String, dynamic>;
+
+        if (preorderData['items'] is List) {
+          List<dynamic> items = preorderData['items'];
+          for (var item in items) {
+            String itemLabel = item['label'] ?? 'Unknown';
+            String itemSize = item['itemSize'] ?? 'Unknown';
+            double quantity = (item['quantity'] ?? 0).toDouble();
+            String category = item['category'] ?? 'Unknown';
+            String itemKey = '$itemLabel ($itemSize)';
+
+            if (category == 'senior_high_items' || category == 'Uniform') {
+              seniorHighSales[itemKey] = (seniorHighSales[itemKey] ?? 0) + quantity;
+            } else if (category == 'college_items') {
+              collegeSales[itemKey] = (collegeSales[itemKey] ?? 0) + quantity;
+            } else if (category == 'merch_and_accessories') {
+              merchSales[itemKey] = (merchSales[itemKey] ?? 0) + quantity;
             }
           }
         }
@@ -115,6 +135,7 @@ class _SalesStatisticsPageState extends State<SalesStatisticsPage> {
       setState(() {
         _collegeSalesData = collegeSales;
         _seniorHighSalesData = seniorHighSales;
+        _merchSalesData = merchSales;
         _isLoading = false;
       });
     } catch (e) {
@@ -169,6 +190,15 @@ class _SalesStatisticsPageState extends State<SalesStatisticsPage> {
               ),
               SizedBox(height: 20),
               _buildPieChart(_seniorHighSalesData),
+              SizedBox(height: 50),
+              Divider(thickness: 2),
+              SizedBox(height: 50),
+              Text(
+                "Merch & Accessories Sales Distribution (${_selectedPeriod})",
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+              ),
+              SizedBox(height: 20),
+              _buildPieChart(_merchSalesData),
             ],
           ),
         ),

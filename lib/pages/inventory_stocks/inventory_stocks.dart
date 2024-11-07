@@ -20,7 +20,8 @@ class _InventoryPageState extends State<InventoryPage> {
     'BACOMM',
     'HRM & Culinary',
     'IT&CPE',
-    'Tourism'
+    'Tourism',
+    'BSA & BSBA'
   ];
   final List<String> _availableSizes = [
     'Small',
@@ -261,46 +262,47 @@ class _InventoryPageState extends State<InventoryPage> {
     double? price = _priceController.text.isNotEmpty ? double.tryParse(_priceController.text) : null;
     int? newQuantity = _quantityController.text.isNotEmpty ? int.tryParse(_quantityController.text) : null;
 
-    // Update quantity if size already exists
+    // Update the local state
     if (itemData['stock'].containsKey(size)) {
       int currentQuantity = itemData['stock'][size]['quantity'];
       int updatedQuantity = newQuantity != null ? currentQuantity + newQuantity : currentQuantity;
       itemData['stock'][size] = {
         'quantity': updatedQuantity,
-        'price': price ?? itemData['stock'][size]['price'], // Only update if a new price is provided
+        'price': price ?? itemData['stock'][size]['price'],
       };
     } else {
-      // Add new size if it does not exist
       itemData['stock'][size] = {
         'quantity': newQuantity ?? 0,
         'price': price ?? 0.0,
       };
     }
 
-    // Determine the correct Firestore path based on collectionType
+    // Correct document reference
     DocumentReference docRef;
     if (collectionType == 'senior_high_items') {
       docRef = firestore.collection('Inventory_stock').doc('senior_high_items').collection('Items').doc(itemKey);
     } else if (collectionType == 'college_items') {
       docRef = firestore.collection('Inventory_stock').doc('college_items').collection(_selectedCourseLabel!).doc(itemKey);
     } else if (collectionType == 'Merch & Accessories') {
-      docRef = firestore.collection('Inventory_stock').doc('Merch & Accessories').collection('Items').doc(itemKey);
+      docRef = firestore.collection('Inventory_stock').doc('Merch & Accessories');
     } else {
       return;
     }
 
-    // Update the 'sizes' field directly in the document
+    // Update Firestore
     Map<String, dynamic> updateData = {
-      'sizes.$size.quantity': newQuantity != null ? FieldValue.increment(newQuantity) : FieldValue.increment(0),
+      '$itemKey.sizes.$size.quantity': newQuantity ?? 0,
     };
     if (price != null) {
-      updateData['sizes.$size.price'] = price;
+      updateData['$itemKey.sizes.$size.price'] = price;
     }
 
     docRef.update(updateData).then((_) {
       setState(() {
-        _fetchInventoryData(); // Refresh data to update UI
+        _fetchInventoryData();
       });
+    }).catchError((error) {
+      print('Failed to update Firestore: $error');
     });
   }
 
@@ -395,17 +397,19 @@ class _InventoryPageState extends State<InventoryPage> {
   }
 
   void _updateQuantity(String itemKey, String size, int change, String collectionType) {
+    // Correcting the document reference based on your structure
     DocumentReference docRef;
     if (collectionType == 'senior_high_items') {
       docRef = firestore.collection('Inventory_stock').doc('senior_high_items').collection('Items').doc(itemKey);
     } else if (collectionType == 'college_items') {
       docRef = firestore.collection('Inventory_stock').doc('college_items').collection(_selectedCourseLabel!).doc(itemKey);
     } else if (collectionType == 'Merch & Accessories') {
-      docRef = firestore.collection('Inventory_stock').doc('Merch & Accessories').collection('Items').doc(itemKey);
+      docRef = firestore.collection('Inventory_stock').doc('Merch & Accessories');
     } else {
       return;
     }
 
+    // Update local state and Firestore
     setState(() {
       Map<String, dynamic>? targetData;
       if (collectionType == 'senior_high_items') {
@@ -423,9 +427,13 @@ class _InventoryPageState extends State<InventoryPage> {
         if (newQuantity >= 0) {
           targetData['stock'][size]['quantity'] = newQuantity;
 
-          // Update Firestore with new quantity
+          // Update Firestore with correct path
           docRef.update({
-            'sizes.$size.quantity': FieldValue.increment(change),
+            '$itemKey.sizes.$size.quantity': FieldValue.increment(change),
+          }).then((_) {
+            print('Firestore updated successfully for $itemKey, size: $size');
+          }).catchError((error) {
+            print('Failed to update Firestore: $error');
           });
         }
       }
