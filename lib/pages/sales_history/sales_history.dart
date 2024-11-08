@@ -23,6 +23,101 @@ class _SalesHistoryPageState extends State<SalesHistoryPage> {
     return DateFormat('yyyy-MM-dd HH:mm:ss').format(date);
   }
 
+  Future<Map<String, dynamic>> _fetchUserData(String userId) async {
+    try {
+      DocumentSnapshot userDoc = await _firestore.collection('users').doc(userId).get();
+      if (userDoc.exists) {
+        var userData = userDoc.data() as Map<String, dynamic>;
+        return {
+          'userName': userData['name'] ?? 'N/A',
+          'studentNumber': userData['studentId'] ?? 'N/A',
+        };
+      }
+    } catch (e) {
+      print("Error fetching user data for $userId: $e");
+    }
+    return {
+      'userName': 'N/A',
+      'studentNumber': 'N/A',
+    };
+  }
+
+  Future<List<Map<String, dynamic>>> _fetchSalesData() async {
+    List<Map<String, dynamic>> allSalesItems = [];
+
+    // Fetch from admin_transactions collection
+    QuerySnapshot adminTransactionsSnapshot = await _firestore
+        .collection('admin_transactions')
+        .orderBy('timestamp', descending: true)
+        .get();
+
+    for (var transactionDoc in adminTransactionsSnapshot.docs) {
+      var transactionData = transactionDoc.data() as Map<String, dynamic>;
+
+      // Process top-level sales data
+      if (transactionData.containsKey('label') && transactionData.containsKey('quantity')) {
+        allSalesItems.add({
+          'itemLabel': transactionData['label'] ?? 'N/A',
+          'itemSize': transactionData['itemSize'] ?? 'N/A',
+          'quantity': transactionData['quantity'] ?? 0,
+          'category': transactionData['category'] ?? 'N/A',
+          'userName': transactionData['userName'] ?? 'N/A',
+          'studentNumber': transactionData['studentNumber'] ?? 'N/A',
+          'timestamp': transactionData['timestamp'],
+        });
+      }
+
+      // Process nested cart items
+      if (transactionData['cartItems'] is List) {
+        List<dynamic> cartItems = transactionData['cartItems'];
+        for (var item in cartItems) {
+          allSalesItems.add({
+            'itemLabel': item['itemLabel'] ?? 'N/A',
+            'itemSize': item['itemSize'] ?? 'N/A',
+            'quantity': item['quantity'] ?? 0,
+            'category': item['category'] ?? 'N/A',
+            'userName': transactionData['userName'] ?? 'N/A',
+            'studentNumber': transactionData['studentNumber'] ?? 'N/A',
+            'timestamp': transactionData['timestamp'],
+          });
+        }
+      }
+    }
+
+    // Fetch from approved_preorders collection
+    QuerySnapshot approvedPreordersSnapshot = await _firestore.collection('approved_preorders').get();
+    print("Fetched ${approvedPreordersSnapshot.docs.length} documents from approved_preorders");
+
+    for (var preorderDoc in approvedPreordersSnapshot.docs) {
+      var preorderData = preorderDoc.data() as Map<String, dynamic>;
+      String userId = preorderData['userId'] ?? '';
+
+      // Fetch user data for each preorder
+      Map<String, dynamic> userData = await _fetchUserData(userId);
+
+      if (preorderData['items'] is List) {
+        List<dynamic> items = preorderData['items'];
+        for (var item in items) {
+          print("Processing item in approved_preorders: ${item['label']}");
+          allSalesItems.add({
+            'itemLabel': item['label'] ?? 'N/A',
+            'itemSize': item['itemSize'] ?? 'N/A',
+            'quantity': item['quantity'] ?? 0,
+            'category': item['category'] ?? 'N/A',
+            'userName': userData['userName'],
+            'studentNumber': userData['studentNumber'],
+            'timestamp': preorderData['preOrderDate'] ?? Timestamp.now(),
+          });
+        }
+      }
+    }
+
+    // Sort by timestamp in descending order
+    allSalesItems.sort((a, b) => (b['timestamp'] as Timestamp).compareTo(a['timestamp'] as Timestamp));
+    print("Total sales items fetched: ${allSalesItems.length}");
+    return allSalesItems;
+  }
+
   Future<void> _generatePDF(List<Map<String, dynamic>> salesData) async {
     final pdf = pw.Document();
     const int rowsPerPage = 20;
@@ -63,7 +158,7 @@ class _SalesHistoryPageState extends State<SalesHistoryPage> {
                           pw.Text(saleItem['category'] ?? 'N/A'),
                           pw.Text(saleItem['userName'] ?? 'N/A'),
                           pw.Text(saleItem['studentNumber'] ?? 'N/A'),
-                          pw.Text(_formatDate(saleItem['timestamp'] as Timestamp?)),
+                          pw.Text(_formatDate(saleItem['timestamp'] as Timestamp)),
                         ],
                       );
                     }),
@@ -79,75 +174,6 @@ class _SalesHistoryPageState extends State<SalesHistoryPage> {
     await Printing.layoutPdf(
       onLayout: (PdfPageFormat format) async => pdf.save(),
     );
-  }
-
-  Future<List<Map<String, dynamic>>> _fetchSalesData() async {
-    List<Map<String, dynamic>> allSalesItems = [];
-
-    // Fetch from admin_transactions collection
-    QuerySnapshot adminTransactionsSnapshot = await _firestore
-        .collection('admin_transactions')
-        .orderBy('timestamp', descending: true)
-        .get();
-    adminTransactionsSnapshot.docs.forEach((transactionDoc) {
-      var transactionData = transactionDoc.data() as Map<String, dynamic>;
-
-      if (transactionData.containsKey('label') && transactionData.containsKey('quantity')) {
-        allSalesItems.add({
-          'itemLabel': transactionData['label'] ?? 'N/A',
-          'itemSize': transactionData['itemSize'] ?? 'N/A',
-          'quantity': transactionData['quantity'] ?? 0,
-          'category': transactionData['category'] ?? 'N/A',
-          'userName': transactionData['userName'] ?? 'N/A',
-          'studentNumber': transactionData['studentNumber'] ?? 'N/A',
-          'timestamp': transactionData['timestamp'],
-        });
-      }
-
-      if (transactionData['cartItems'] is List) {
-        List<dynamic> cartItems = transactionData['cartItems'];
-        for (var item in cartItems) {
-          allSalesItems.add({
-            'itemLabel': item['itemLabel'] ?? 'N/A',
-            'itemSize': item['itemSize'] ?? 'N/A',
-            'quantity': item['quantity'] ?? 0,
-            'category': item['category'] ?? 'N/A',
-            'userName': transactionData['userName'] ?? 'N/A',
-            'studentNumber': transactionData['studentNumber'] ?? 'N/A',
-            'timestamp': transactionData['timestamp'],
-          });
-        }
-      }
-    });
-
-    // Fetch from approved_preorders collection
-    QuerySnapshot approvedPreordersSnapshot = await _firestore.collection('approved_preorders').get();
-    print("Fetched ${approvedPreordersSnapshot.docs.length} documents from approved_preorders");
-
-    approvedPreordersSnapshot.docs.forEach((preorderDoc) {
-      var preorderData = preorderDoc.data() as Map<String, dynamic>;
-
-      if (preorderData['items'] is List) {
-        List<dynamic> items = preorderData['items'];
-        for (var item in items) {
-          print("Processing item in approved_preorders: ${item['label']}");
-          allSalesItems.add({
-            'itemLabel': item['label'] ?? 'N/A',
-            'itemSize': item['itemSize'] ?? 'N/A',
-            'quantity': item['quantity'] ?? 0,
-            'category': item['category'] ?? 'N/A',
-            'userName': preorderData['userName'] ?? 'N/A',
-            'studentNumber': preorderData['studentNumber'] ?? 'N/A',
-            'timestamp': preorderData['preOrderDate'] ?? Timestamp.now(),
-          });
-        }
-      }
-    });
-
-    // Sort by timestamp in descending order
-    allSalesItems.sort((a, b) => (b['timestamp'] as Timestamp).compareTo(a['timestamp'] as Timestamp));
-    print("Total sales items fetched: ${allSalesItems.length}");
-    return allSalesItems;
   }
 
   @override
@@ -186,6 +212,7 @@ class _SalesHistoryPageState extends State<SalesHistoryPage> {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return Center(child: CircularProgressIndicator());
           } else if (snapshot.hasError) {
+            print("Error in FutureBuilder: ${snapshot.error}");
             return Center(child: CustomText(text: "Error fetching sales history"));
           } else if (snapshot.hasData && snapshot.data!.isEmpty) {
             return Center(child: CustomText(text: "No sales history found"));
