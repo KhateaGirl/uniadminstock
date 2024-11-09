@@ -262,13 +262,14 @@ class _InventoryPageState extends State<InventoryPage> {
     double? price = _priceController.text.isNotEmpty ? double.tryParse(_priceController.text) : null;
     int? newQuantity = _quantityController.text.isNotEmpty ? int.tryParse(_quantityController.text) : null;
 
-    // Update the local state
     if (itemData['stock'].containsKey(size)) {
       int currentQuantity = itemData['stock'][size]['quantity'];
+      double currentPrice = itemData['stock'][size]['price'];
+
       int updatedQuantity = newQuantity != null ? currentQuantity + newQuantity : currentQuantity;
       itemData['stock'][size] = {
         'quantity': updatedQuantity,
-        'price': price ?? itemData['stock'][size]['price'],
+        'price': price ?? currentPrice,
       };
     } else {
       itemData['stock'][size] = {
@@ -277,24 +278,29 @@ class _InventoryPageState extends State<InventoryPage> {
       };
     }
 
-    // Correct document reference
     DocumentReference docRef;
+    Map<String, dynamic> updateData;
+
     if (collectionType == 'senior_high_items') {
       docRef = firestore.collection('Inventory_stock').doc('senior_high_items').collection('Items').doc(itemKey);
+      updateData = {
+        if (newQuantity != null) 'sizes.$size.quantity': FieldValue.increment(newQuantity),
+        if (price != null) 'sizes.$size.price': price,
+      };
     } else if (collectionType == 'college_items') {
       docRef = firestore.collection('Inventory_stock').doc('college_items').collection(_selectedCourseLabel!).doc(itemKey);
+      updateData = {
+        if (newQuantity != null) 'sizes.$size.quantity': FieldValue.increment(newQuantity),
+        if (price != null) 'sizes.$size.price': price,
+      };
     } else if (collectionType == 'Merch & Accessories') {
       docRef = firestore.collection('Inventory_stock').doc('Merch & Accessories');
+      updateData = {
+        if (newQuantity != null) '$itemKey.sizes.$size.quantity': FieldValue.increment(newQuantity),
+        if (price != null) '$itemKey.sizes.$size.price': price,
+      };
     } else {
       return;
-    }
-
-    // Update Firestore
-    Map<String, dynamic> updateData = {
-      '$itemKey.sizes.$size.quantity': newQuantity ?? 0,
-    };
-    if (price != null) {
-      updateData['$itemKey.sizes.$size.price'] = price;
     }
 
     docRef.update(updateData).then((_) {
@@ -302,7 +308,51 @@ class _InventoryPageState extends State<InventoryPage> {
         _fetchInventoryData();
       });
     }).catchError((error) {
-      print('Failed to update Firestore: $error');
+    });
+  }
+
+  void _updateQuantity(String itemKey, String size, int change, String collectionType) {
+    DocumentReference docRef;
+    Map<String, dynamic> updateData;
+
+    if (collectionType == 'senior_high_items') {
+      docRef = firestore.collection('Inventory_stock').doc('senior_high_items').collection('Items').doc(itemKey);
+      updateData = {
+        'sizes.$size.quantity': FieldValue.increment(change),
+      };
+    } else if (collectionType == 'college_items') {
+      docRef = firestore.collection('Inventory_stock').doc('college_items').collection(_selectedCourseLabel!).doc(itemKey);
+      updateData = {
+        'sizes.$size.quantity': FieldValue.increment(change),
+      };
+    } else if (collectionType == 'Merch & Accessories') {
+      docRef = firestore.collection('Inventory_stock').doc('Merch & Accessories');
+      updateData = {
+        '$itemKey.sizes.$size.quantity': FieldValue.increment(change),
+      };
+    } else {
+      return;
+    }
+
+    docRef.update(updateData).then((_) {
+    }).catchError((error) {
+    });
+
+    setState(() {
+      Map<String, dynamic>? targetData;
+      if (collectionType == 'senior_high_items') {
+        targetData = _seniorHighStockQuantities[itemKey];
+      } else if (collectionType == 'college_items') {
+        targetData = _collegeStockQuantities[_selectedCourseLabel!]![itemKey];
+      } else if (collectionType == 'Merch & Accessories') {
+        targetData = _merchStockQuantities[itemKey];
+      }
+
+      if (targetData != null && targetData['stock'].containsKey(size)) {
+        int currentQuantity = targetData['stock'][size]['quantity'];
+        int newQuantity = currentQuantity + change;
+        targetData['stock'][size]['quantity'] = newQuantity >= 0 ? newQuantity : 0;
+      }
     });
   }
 
@@ -396,50 +446,6 @@ class _InventoryPageState extends State<InventoryPage> {
     );
   }
 
-  void _updateQuantity(String itemKey, String size, int change, String collectionType) {
-    // Correcting the document reference based on your structure
-    DocumentReference docRef;
-    if (collectionType == 'senior_high_items') {
-      docRef = firestore.collection('Inventory_stock').doc('senior_high_items').collection('Items').doc(itemKey);
-    } else if (collectionType == 'college_items') {
-      docRef = firestore.collection('Inventory_stock').doc('college_items').collection(_selectedCourseLabel!).doc(itemKey);
-    } else if (collectionType == 'Merch & Accessories') {
-      docRef = firestore.collection('Inventory_stock').doc('Merch & Accessories');
-    } else {
-      return;
-    }
-
-    // Update local state and Firestore
-    setState(() {
-      Map<String, dynamic>? targetData;
-      if (collectionType == 'senior_high_items') {
-        targetData = _seniorHighStockQuantities[itemKey];
-      } else if (collectionType == 'college_items') {
-        targetData = _collegeStockQuantities[_selectedCourseLabel!]![itemKey];
-      } else if (collectionType == 'Merch & Accessories') {
-        targetData = _merchStockQuantities[itemKey];
-      }
-
-      if (targetData != null && targetData['stock'].containsKey(size)) {
-        int currentQuantity = targetData['stock'][size]['quantity'];
-        int newQuantity = currentQuantity + change;
-
-        if (newQuantity >= 0) {
-          targetData['stock'][size]['quantity'] = newQuantity;
-
-          // Update Firestore with correct path
-          docRef.update({
-            '$itemKey.sizes.$size.quantity': FieldValue.increment(change),
-          }).then((_) {
-            print('Firestore updated successfully for $itemKey, size: $size');
-          }).catchError((error) {
-            print('Failed to update Firestore: $error');
-          });
-        }
-      }
-    });
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -460,7 +466,6 @@ class _InventoryPageState extends State<InventoryPage> {
         padding: const EdgeInsets.all(16.0),
         child: ListView(
           children: [
-            // Senior High Inventory
             Text(
               'Senior High Inventory',
               style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
@@ -482,7 +487,6 @@ class _InventoryPageState extends State<InventoryPage> {
             ),
             SizedBox(height: 16),
 
-            // College Inventory
             Text(
               'College Inventory',
               style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
@@ -521,7 +525,6 @@ class _InventoryPageState extends State<InventoryPage> {
                 : Center(child: Text('Select a course to view inventory')),
             SizedBox(height: 16),
 
-            // Merch & Accessories Inventory
             Text(
               'Merch & Accessories Inventory',
               style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
