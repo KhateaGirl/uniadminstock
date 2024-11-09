@@ -33,21 +33,32 @@ class _PreOrderPageState extends State<PreOrderPage> {
     super.dispose();
   }
 
-  Future<void> _sendSMSToUser(String contactNumber, String studentName, String studentNumber, List<Map<String, dynamic>> cartItems) async {
+  Future<void> _sendSMSToUser(String contactNumber, String studentName, String studentNumber, double totalOrderPrice, List<Map<String, dynamic>> cartItems) async {
     try {
-      double totalPrice = 0.0;
-      String message = "Hello $studentName (Student ID: $studentNumber), your pre-order has been approved. Items: ";
+      List<String> itemDetails = [];
+      double overallTotalPrice = 0.0;
 
+      // Build item details and calculate the total price
       for (var item in cartItems) {
-        String label = item['itemLabel'];
-        int quantity = item['quantity'];
-        double price = item['price'] ?? 0.0;
-        totalPrice += price * quantity;
-        message += "$label (x$quantity) - ₱${(price * quantity).toStringAsFixed(2)}, ";
-      }
-      message = message.trimRight().replaceAll(RegExp(r',\s*$'), '');
-      message += ". Total Price: ₱${totalPrice.toStringAsFixed(2)}";
+        String label = item['label'] ?? 'Item';
+        int quantity = item['quantity'] ?? 1;
+        double pricePerPiece = item['pricePerPiece'] is double
+            ? item['pricePerPiece']
+            : (item['pricePerPiece'] != null ? double.parse(item['pricePerPiece'].toString()) : 0.0);
 
+        // Calculate total price for the item and add to overall total
+        double itemTotalPrice = pricePerPiece * quantity;
+        overallTotalPrice += itemTotalPrice;
+
+        // Format each item's details
+        itemDetails.add("$label (x$quantity) - ₱${itemTotalPrice.toStringAsFixed(2)}");
+      }
+
+      // Construct the message with totalOrderPrice or overallTotalPrice if calculated manually
+      String itemNames = itemDetails.join(", ");
+      String message = "Hello $studentName (Student ID: $studentNumber), your pre-order for $itemNames has been approved. Total Price: ₱${overallTotalPrice.toStringAsFixed(2)}.";
+
+      // Send SMS
       final response = await http.post(
         Uri.parse('http://localhost:3000/send-sms'),
         headers: {
@@ -74,19 +85,52 @@ class _PreOrderPageState extends State<PreOrderPage> {
   Future<void> _sendNotificationToUser(String userId, String userName, Map<String, dynamic> preOrder) async {
     try {
       List<String> itemDetails = [];
-      double totalPrice = 0.0;
+      double totalPrice = 0.0; // Initialize total price to accumulate item totals
 
-      for (var item in preOrder['items']) {
-        String label = item['label'];
-        int quantity = item['quantity'];
-        double price = item['price'] ?? 0.0;
-        totalPrice += price * quantity;
-        itemDetails.add("$label (x$quantity) - ₱${(price * quantity).toStringAsFixed(2)}");
+      // Debugging: Print the entire preOrder data
+      print("Pre-order Data: $preOrder");
+
+      // Check and accumulate total price from individual items in preOrder['items']
+      if (preOrder.containsKey('items') && preOrder['items'] is List) {
+        for (var item in preOrder['items']) {
+          // Debugging: Print each item's raw data
+          print("Item Data: $item");
+
+          String label = item['label'] ?? 'No Label';
+          int quantity = item['quantity'] ?? 1;
+          double itemTotalPrice = 0.0;
+
+          // Retrieve and parse each item's totalPrice
+          if (item['totalPrice'] != null) {
+            if (item['totalPrice'] is int) {
+              itemTotalPrice = (item['totalPrice'] as int).toDouble();
+            } else if (item['totalPrice'] is double) {
+              itemTotalPrice = item['totalPrice'];
+            } else {
+              itemTotalPrice = double.tryParse(item['totalPrice'].toString()) ?? 0.0;
+            }
+          }
+
+          // Add each item's totalPrice to the overall totalPrice
+          totalPrice += itemTotalPrice;
+
+          // Debugging: Print item details after parsing
+          print("Parsed Item - Label: $label, Quantity: $quantity, Item Total Price: $itemTotalPrice");
+
+          // Append each item details to the list
+          itemDetails.add("$label (x$quantity) - ₱${itemTotalPrice.toStringAsFixed(2)}");
+        }
+      } else {
+        print("No items found in the preOrder data.");
       }
+
+      // Debugging: Log totalPrice after calculating from all items
+      print("Total Order Price after accumulation: $totalPrice");
 
       String itemNames = itemDetails.join(", ");
       String message = "Hello $userName, your pre-order for $itemNames has been approved. Total Price: ₱${totalPrice.toStringAsFixed(2)}.";
 
+      // Send notification to Firestore
       await _firestore.collection('users').doc(userId).collection('notifications').add({
         'title': 'Pre-order approved',
         'message': message,
@@ -114,16 +158,19 @@ class _PreOrderPageState extends State<PreOrderPage> {
         throw Exception('Invalid pre-order data: userId or orderId is missing.');
       }
 
-      // Fetch the user's profile to get the contact number
+      // Fetch the user's profile to get the contact number and name
       DocumentSnapshot userDoc = await _firestore.collection('users').doc(userId).get();
       if (!userDoc.exists || userDoc['contactNumber'] == null) {
         throw Exception('User profile not found or contact number is missing.');
       }
 
-      // Get the contact number from the user's document
+      // Get the contact number and other user details from the user's document
       String contactNumber = userDoc['contactNumber'];
+      String studentName = userDoc['name'] ?? 'Unknown Name';  // Assuming `name` field exists
+      String studentNumber = userDoc['studentId'] ?? 'Unknown ID';
       print('Fetched contact number: $contactNumber');
 
+      // Fetch the order document
       DocumentSnapshot orderDoc = await _firestore
           .collection('users')
           .doc(userId)
@@ -137,7 +184,8 @@ class _PreOrderPageState extends State<PreOrderPage> {
 
       Map<String, dynamic> orderData = orderDoc.data() as Map<String, dynamic>;
       orderData['status'] = 'approved';
-      Timestamp orderDate = orderDoc['preOrderDate'] ?? Timestamp.now();
+
+      double totalOrderPrice = orderData['totalOrderPrice'] ?? 0.0;  // Using totalOrderPrice from the document if available
       List<dynamic> orderItems = preOrder['items'] ?? [];
 
       if (orderItems.isEmpty) {
@@ -145,7 +193,6 @@ class _PreOrderPageState extends State<PreOrderPage> {
       }
 
       List<Map<String, dynamic>> cartItems = [];
-
       for (var item in orderItems) {
         String label = (item['label'] ?? 'No Label').trim();
         int quantity = item['quantity'] ?? 0;
@@ -155,30 +202,22 @@ class _PreOrderPageState extends State<PreOrderPage> {
         }
 
         cartItems.add({
-          'itemLabel': label,
+          'label': label,
           'quantity': quantity,
+          'pricePerPiece': item['pricePerPiece'] ?? 0.0,  // Assuming pricePerPiece is part of each item
         });
       }
 
-      await _firestore
-          .collection('approved_preorders')
-          .doc(orderId)
-          .set({
+      // Save to approved_preorders collection and delete from preorders collection
+      await _firestore.collection('approved_preorders').doc(orderId).set({
         'userId': userId,
         ...orderData,
       });
 
-      await _firestore
-          .collection('users')
-          .doc(userId)
-          .collection('preorders')
-          .doc(orderId)
-          .delete();
+      await _firestore.collection('users').doc(userId).collection('preorders').doc(orderId).delete();
 
-      // Send SMS with fetched contact number, excluding totalAmount
-      await _sendSMSToUser(contactNumber, userName, studentId, cartItems);
-
-      // Send a notification to the user
+      // Send SMS and Notification
+      await _sendSMSToUser(contactNumber, studentName, studentNumber, totalOrderPrice, cartItems);
       await _sendNotificationToUser(userId, userName, preOrder);
 
       await _fetchAllPendingPreOrders();
