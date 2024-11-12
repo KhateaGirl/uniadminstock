@@ -8,6 +8,7 @@ const AboutUsPageRoute = "About Us";
 const AuthenticationPageRoute = "Authentication";
 const SettingsPageRoute = "Settings";
 const PreOrderPageRoute = "Pre-Order";
+const ReleasePageRoute = "Release Page";
 const AdminNotificationPageRoute = "Admin Notifications";
 
 List sideMenuItems = [
@@ -18,6 +19,7 @@ List sideMenuItems = [
   SalesHistoryPageRoute,
   SalesStatisticsPageRoute,
   WalkinPageRoute,
+  ReleasePageRoute,
   AboutUsPageRoute,
   AuthenticationPageRoute
 ];
