@@ -35,7 +35,6 @@ class _ReservationListPageState extends State<ReservationListPage> {
       isLoading = true;
     });
 
-    // Fetch all users from Firestore
     QuerySnapshot usersSnapshot = await _firestore.collection('users').get();
 
     for (var userDoc in usersSnapshot.docs) {
@@ -44,7 +43,6 @@ class _ReservationListPageState extends State<ReservationListPage> {
           ? userDoc['studentId']
           : 'Unknown ID';
 
-      // Fetch all pending orders for the current user
       QuerySnapshot ordersSnapshot = await _firestore
           .collection('users')
           .doc(userDoc.id)
@@ -55,7 +53,6 @@ class _ReservationListPageState extends State<ReservationListPage> {
       for (var orderDoc in ordersSnapshot.docs) {
         Map<String, dynamic> reservationData = orderDoc.data() as Map<String, dynamic>;
 
-        // Add additional information to the reservation data
         reservationData['orderId'] = orderDoc.id;
         reservationData['userName'] = userName;
         reservationData['studentId'] = studentId;
@@ -64,7 +61,6 @@ class _ReservationListPageState extends State<ReservationListPage> {
         reservationData['label'] = reservationData['label'] ?? 'No Label';
         reservationData['courseLabel'] = reservationData['courseLabel'] ?? 'Unknown Course';
 
-        // Check if there are items within the order
         if (reservationData.containsKey('items') && reservationData['items'] is List) {
           List<dynamic> orderItems = reservationData['items'];
 
@@ -76,38 +72,31 @@ class _ReservationListPageState extends State<ReservationListPage> {
 
             double itemTotalPrice = itemQuantity * itemPrice;
             item['totalPrice'] = itemTotalPrice.toStringAsFixed(2);
-            item['pricePerPiece'] = itemPrice; // Explicitly add price per piece
-            item['size'] = itemSize; // Explicitly add item size
+            item['pricePerPiece'] = itemPrice;
+            item['size'] = itemSize;
 
             totalOrderPrice += itemTotalPrice;
           }
 
           reservationData['totalOrderPrice'] = totalOrderPrice.toStringAsFixed(2);
         } else {
-          // Handle cases where there's no 'items' list (single-item orders)
           int quantity = reservationData['quantity'] ?? 1;
           double pricePerPiece = reservationData['price'] ?? 0.0;
-          String itemSize = reservationData['itemSize'] ?? 'Unknown Size'; // Get size for single item
-
+          String itemSize = reservationData['itemSize'] ?? 'Unknown Size';
           double totalPrice = quantity * pricePerPiece;
 
           reservationData['totalPrice'] = totalPrice.toStringAsFixed(2);
-          reservationData['pricePerPiece'] = pricePerPiece; // Ensure price per piece is added
-          reservationData['size'] = itemSize; // Explicitly set item size for single item
-
+          reservationData['pricePerPiece'] = pricePerPiece;
+          reservationData['size'] = itemSize;
           reservationData['quantity'] = quantity;
-
           reservationData['label'] = reservationData['label'];
           reservationData['courseLabel'] = reservationData['courseLabel'];
           reservationData['category'] = reservationData['category'];
         }
-
-        // Add the processed reservation to the pending reservations list
         pendingReservations.add(reservationData);
       }
     }
 
-    // Sort the reservations by order date in descending order
     pendingReservations.sort((a, b) {
       Timestamp aTimestamp = a['orderDate'] != null && a['orderDate'] is Timestamp
           ? a['orderDate']
@@ -118,7 +107,6 @@ class _ReservationListPageState extends State<ReservationListPage> {
       return bTimestamp.compareTo(aTimestamp);
     });
 
-    // Update the state with the processed reservations
     setState(() {
       allPendingReservations = pendingReservations;
       isLoading = false;
@@ -131,7 +119,7 @@ class _ReservationListPageState extends State<ReservationListPage> {
       String orderId = reservation['orderId'] ?? '';
       String userName = reservation['userName'] ?? 'Unknown User';
       String studentId = reservation['studentId'] ?? 'Unknown ID';
-      String studentName = reservation['userName'] ?? 'Unknown User'; // assuming userName as studentName
+      String studentName = reservation['userName'] ?? 'Unknown User';
 
       if (userId.isEmpty || orderId.isEmpty) {
         throw Exception('Invalid reservation data: userId or orderId is missing.');
@@ -166,9 +154,7 @@ class _ReservationListPageState extends State<ReservationListPage> {
           throw Exception('Invalid item data: missing label, category, subCategory, or quantity.');
         }
 
-        await _deductItemQuantity(mainCategory, subCategory, label, itemSize, quantity);
-
-        await _firestore.collection('approved_items').add({
+        await _firestore.collection('approved_reservation').add({
           'reservationDate': reservationDate,
           'approvalDate': FieldValue.serverTimestamp(),
           'label': label,
@@ -179,25 +165,9 @@ class _ReservationListPageState extends State<ReservationListPage> {
           'mainCategory': mainCategory,
           'subCategory': subCategory,
         });
-
-        await _firestore.collection('admin_transactions').add({
-          'cartItemRef': orderId,
-          'category': mainCategory,
-          'courseLabel': subCategory,
-          'label': label,
-          'itemSize': itemSize,
-          'quantity': quantity,
-          'studentNumber': studentId,
-          'timestamp': FieldValue.serverTimestamp(),
-          'userId': userId,
-          'userName': userName,
-        });
       }
 
-      // Update order status to 'approved'
       await _firestore.collection('users').doc(userId).collection('orders').doc(orderId).update({'status': 'approved'});
-
-      // Send notification with student name and student ID
       await _sendNotificationToUser(userId, userName, studentName, studentId, reservation);
       await _fetchAllPendingReservations();
 
@@ -216,107 +186,6 @@ class _ReservationListPageState extends State<ReservationListPage> {
           backgroundColor: Colors.red,
         ),
       );
-    }
-  }
-
-  Future<void> _deductItemQuantity(String category, String subCategory, String label, String size, int quantity) async {
-    try {
-      // Map the specific known category format to match Firestore structure
-      if (category == 'merch_and_accessories') {
-        category = 'Merch & Accessories';
-      } else {
-        // Normalize the category name for other potential inconsistencies
-        category = category.toLowerCase().replaceAll('_', ' ');
-      }
-
-      CollectionReference itemsRef;
-
-      // Adjust the Firestore path based on the normalized or mapped category
-      if (category == 'senior high items') {
-        itemsRef = _firestore.collection('Inventory_stock').doc('senior_high_items').collection('Items');
-
-        QuerySnapshot querySnapshot = await itemsRef.where('label', isEqualTo: label).limit(1).get();
-        if (querySnapshot.docs.isEmpty) {
-          throw Exception('Item not found in inventory: $label');
-        }
-
-        DocumentSnapshot itemDoc = querySnapshot.docs.first;
-        Map<String, dynamic> itemData = itemDoc.data() as Map<String, dynamic>;
-
-        if (itemData.containsKey('sizes') && itemData['sizes'] is Map && itemData['sizes'][size] != null) {
-          int currentStock = itemData['sizes'][size]['quantity'] ?? 0;
-
-          if (currentStock >= quantity) {
-            itemData['sizes'][size]['quantity'] = currentStock - quantity;
-            await itemsRef.doc(itemDoc.id).update({'sizes': itemData['sizes']});
-          } else {
-            throw Exception('Insufficient stock for $label size $size. Current stock: $currentStock, required: $quantity');
-          }
-        } else {
-          throw Exception('Size $size not available for item $label');
-        }
-
-      } else if (category == 'college items') {
-        itemsRef = _firestore.collection('Inventory_stock').doc('college_items').collection(subCategory);
-
-        QuerySnapshot querySnapshot = await itemsRef.where('label', isEqualTo: label).limit(1).get();
-        if (querySnapshot.docs.isEmpty) {
-          throw Exception('Item not found in inventory: $label');
-        }
-
-        DocumentSnapshot itemDoc = querySnapshot.docs.first;
-        Map<String, dynamic> itemData = itemDoc.data() as Map<String, dynamic>;
-
-        if (itemData.containsKey('sizes') && itemData['sizes'] is Map && itemData['sizes'][size] != null) {
-          int currentStock = itemData['sizes'][size]['quantity'] ?? 0;
-
-          if (currentStock >= quantity) {
-            itemData['sizes'][size]['quantity'] = currentStock - quantity;
-            await itemsRef.doc(itemDoc.id).update({'sizes': itemData['sizes']});
-          } else {
-            throw Exception('Insufficient stock for $label size $size. Current stock: $currentStock, required: $quantity');
-          }
-        } else {
-          throw Exception('Size $size not available for item $label');
-        }
-
-      } else if (category == 'Merch & Accessories') {
-        // Directly access fields in "Merch & Accessories" document
-        DocumentSnapshot merchDoc = await _firestore.collection('Inventory_stock').doc('Merch & Accessories').get();
-        if (!merchDoc.exists) {
-          throw Exception('Merch & Accessories document not found');
-        }
-
-        Map<String, dynamic> merchData = merchDoc.data() as Map<String, dynamic>;
-
-        if (merchData.containsKey(label)) {
-          Map<String, dynamic> itemData = merchData[label] as Map<String, dynamic>;
-
-          if (itemData.containsKey('sizes') && itemData['sizes'] is Map && itemData['sizes'][size] != null) {
-            int currentStock = itemData['sizes'][size]['quantity'] ?? 0;
-
-            if (currentStock >= quantity) {
-              itemData['sizes'][size]['quantity'] = currentStock - quantity;
-
-              // Update only the specific item field in "Merch & Accessories" document
-              await _firestore.collection('Inventory_stock').doc('Merch & Accessories').update({label: itemData});
-            } else {
-              throw Exception('Insufficient stock for $label size $size. Current stock: $currentStock, required: $quantity');
-            }
-          } else {
-            throw Exception('Size $size not available for item $label');
-          }
-        } else {
-          throw Exception('Item not found in Merch & Accessories: $label');
-        }
-
-      } else {
-        throw Exception('Unknown category: $category');
-      }
-
-    } catch (e) {
-      print('Error in _deductItemQuantity: $e');
-      throw Exception('Failed to deduct stock: $e');
     }
   }
 
@@ -475,7 +344,6 @@ class _ReservationListPageState extends State<ReservationListPage> {
                       ];
                     }
 
-                    // Handling bulk orders with expandable rows
                     double totalQuantity = orderItems.fold<double>(0, (sum, item) => sum + (item['quantity'] ?? 1));
                     double totalPrice = orderItems.fold<double>(
                         0, (sum, item) => sum + ((item['quantity'] ?? 1) * (double.tryParse(item['price']?.toString() ?? '0') ?? 0.0)));
@@ -527,7 +395,6 @@ class _ReservationListPageState extends State<ReservationListPage> {
                       ),
                     ];
 
-                    // Expanded view for items in bulk orders
                     if (isExpanded) {
                       rows.addAll(orderItems.map<DataRow>((item) {
                         int itemQuantity = item['quantity'] ?? 1;
@@ -539,15 +406,15 @@ class _ReservationListPageState extends State<ReservationListPage> {
                         return DataRow(
                           key: ValueKey('${reservation['orderId']}_${itemLabel}'),
                           cells: [
-                            DataCell(Text('')), // Empty for alignment
-                            DataCell(Text('')), // Empty for alignment
+                            DataCell(Text('')),
+                            DataCell(Text('')),
                             DataCell(Text(itemLabel)),
                             DataCell(Text(itemSize)),
                             DataCell(Text('$itemQuantity')),
                             DataCell(Text('₱${pricePerPiece.toStringAsFixed(2)}')),
                             DataCell(Text('₱${itemTotalPrice.toStringAsFixed(2)}')),
-                            DataCell(Text('')), // Empty for alignment
-                            DataCell(Text('')), // Empty for alignment
+                            DataCell(Text('')),
+                            DataCell(Text('')),
                           ],
                         );
                       }).toList());

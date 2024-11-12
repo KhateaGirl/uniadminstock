@@ -36,6 +36,8 @@ class CustomMenuController extends GetxController{
         return _customIcon(Icons.insights, itemName);
       case WalkinPageRoute:
         return _customIcon(Icons.directions_walk, itemName);
+      case ReleasePageRoute:
+        return _customIcon(Icons.shopping_cart_checkout, itemName);
       case AuthenticationPageRoute:
         return _customIcon(Icons.exit_to_app, itemName);
       case AboutUsPageRoute:
