@@ -38,36 +38,29 @@ class _ReleasePageState extends State<ReleasePage> {
     try {
       QuerySnapshot approvedReservationsSnapshot = await _firestore.collection('approved_reservation').get();
 
-      if (approvedReservationsSnapshot.docs.isEmpty) {
-      } else {
-      }
-
       for (var doc in approvedReservationsSnapshot.docs) {
         Map<String, dynamic> transactionData = doc.data() as Map<String, dynamic>;
         transactionData['transactionId'] = doc.id;
         transactionData['userName'] = transactionData['name'] ?? 'Unknown User';
         transactionData['studentId'] = transactionData['studentId'] ?? 'Unknown ID';
-        transactionData['category'] = transactionData['mainCategory'] ?? 'Unknown Category';
-        transactionData['label'] = transactionData['label'] ?? 'No Label';
-        transactionData['itemSize'] = transactionData['itemSize'] ?? 'Unknown Size';
-        transactionData['quantity'] = transactionData['quantity'] ?? 1;
-        transactionData['pricePerPiece'] = transactionData['pricePerPiece'] ?? 0.0;
 
-        double totalPrice = transactionData['quantity'] * transactionData['pricePerPiece'];
-        transactionData['totalPrice'] = totalPrice.toStringAsFixed(2);
+        if (transactionData.containsKey('items') && transactionData['items'] is List) {
+          double totalOrderPrice = 0.0;
+          for (var item in transactionData['items']) {
+            int quantity = item['quantity'] ?? 1;
+            double pricePerPiece = item['pricePerPiece'] ?? 0.0;
+            item['totalPrice'] = (quantity * pricePerPiece).toStringAsFixed(2);
+            totalOrderPrice += quantity * pricePerPiece;
+          }
+          transactionData['totalOrderPrice'] = totalOrderPrice.toStringAsFixed(2);
+        } else {
+          int quantity = transactionData['quantity'] ?? 1;
+          double pricePerPiece = transactionData['pricePerPiece'] ?? 0.0;
+          transactionData['totalPrice'] = (quantity * pricePerPiece).toStringAsFixed(2);
+        }
 
         approvedTransactions.add(transactionData);
       }
-
-      approvedTransactions.sort((a, b) {
-        Timestamp aTimestamp = a['approvalDate'] != null && a['approvalDate'] is Timestamp
-            ? a['approvalDate']
-            : Timestamp.now();
-        Timestamp bTimestamp = b['approvalDate'] != null && b['approvalDate'] is Timestamp
-            ? b['approvalDate']
-            : Timestamp.now();
-        return bTimestamp.compareTo(aTimestamp);
-      });
 
       setState(() {
         allPendingReservations = approvedTransactions;
@@ -360,9 +353,9 @@ class _ReleasePageState extends State<ReleasePage> {
 
       String notificationMessage;
       if (orderSummary.length > 1) {
-        notificationMessage = 'Dear $studentName (ID: $studentId), your bulk reservation (${orderSummary.length} items) has been approved.';
+        notificationMessage = 'Dear $studentName (ID: $studentId), your bulk transaction (${orderSummary.length} items) has been approved.';
       } else {
-        notificationMessage = 'Dear $studentName (ID: $studentId), your reservation for ${orderSummary[0]['label']} (${orderSummary[0]['itemSize']}) has been approved.';
+        notificationMessage = 'Dear $studentName (ID: $studentId), your transaction for ${orderSummary[0]['label']} (${orderSummary[0]['itemSize']}) has been approved.';
       }
 
       CollectionReference notificationsRef = FirebaseFirestore.instance
@@ -371,7 +364,7 @@ class _ReleasePageState extends State<ReleasePage> {
           .collection('notifications');
 
       await notificationsRef.add({
-        'title': 'Reservation Approved',
+        'title': 'Transaction Approved',
         'message': notificationMessage,
         'orderSummary': orderSummary,
         'studentName': studentName,
@@ -447,8 +440,9 @@ class _ReleasePageState extends State<ReleasePage> {
                         .format((reservation['reservationDate'] as Timestamp).toDate())
                         : 'No Date Provided';
 
+                    // Unique key by combining transaction ID with a unique identifier
                     return DataRow(
-                      key: ValueKey(reservation['transactionId']),
+                      key: ValueKey('${reservation['transactionId']}_${reservation.hashCode}'),
                       cells: [
                         DataCell(Text(name)),
                         DataCell(Text(studentId)),

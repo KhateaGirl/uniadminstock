@@ -139,49 +139,54 @@ class _ReservationListPageState extends State<ReservationListPage> {
 
       Timestamp reservationDate = orderDoc['orderDate'] ?? Timestamp.now();
       List<dynamic> orderItems = reservation['items'] ?? [];
-      if (orderItems.isEmpty) {
-        throw Exception('No items found in the reservation');
-      }
 
-      for (var item in orderItems) {
-        String label = (item['label'] ?? 'No Label').trim();
-        String itemSize = (item['itemSize'] ?? 'Unknown Size').trim();
-        String mainCategory = (item['category'] ?? '').trim();
-        String subCategory = (item['courseLabel'] ?? '').trim();
-        int quantity = item['quantity'] ?? 0;
-        double price = item['price'] ?? 0.0;
-
-        if (label.isEmpty || mainCategory.isEmpty || subCategory.isEmpty || quantity <= 0) {
-          throw Exception('Invalid item data: missing label, category, subCategory, or quantity.');
+      // Aggregate items into a single document for bulk orders
+      if (orderItems.isNotEmpty) {
+        List<Map<String, dynamic>> approvedItems = [];
+        for (var item in orderItems) {
+          approvedItems.add({
+            'label': item['label'] ?? 'No Label',
+            'itemSize': item['itemSize'] ?? 'Unknown Size',
+            'quantity': item['quantity'] ?? 1,
+            'pricePerPiece': item['price'] ?? 0.0,
+            'mainCategory': item['category'] ?? 'Unknown Category',
+            'subCategory': item['courseLabel'] ?? 'Unknown Course',
+          });
         }
 
-        // Add the approved reservation with a reference to the user
         await _firestore.collection('approved_reservation').add({
           'reservationDate': reservationDate,
           'approvalDate': FieldValue.serverTimestamp(),
-          'label': label,
-          'itemSize': itemSize,
-          'quantity': quantity,
+          'items': approvedItems,
           'name': userName,
-          'pricePerPiece': price,
-          'mainCategory': mainCategory,
-          'subCategory': subCategory,
-          'userRef': _firestore.collection('users').doc(userId), // Reference to the user's document
-          'userId': userId, // Store user ID for quick access
-          'studentId': studentId, // Store student ID
+          'userId': userId,
+          'studentId': studentId,
+        });
+      } else {
+        // For single item reservation
+        await _firestore.collection('approved_reservation').add({
+          'reservationDate': reservationDate,
+          'approvalDate': FieldValue.serverTimestamp(),
+          'label': reservation['label'],
+          'itemSize': reservation['itemSize'],
+          'quantity': reservation['quantity'],
+          'pricePerPiece': reservation['price'],
+          'mainCategory': reservation['category'],
+          'subCategory': reservation['courseLabel'],
+          'name': userName,
+          'userId': userId,
+          'studentId': studentId,
         });
       }
 
-      // Update order status to 'approved'
       await _firestore.collection('users').doc(userId).collection('orders').doc(orderId).update({'status': 'approved'});
 
-      // Send notification with student name and student ID
       await _sendNotificationToUser(userId, userName, studentName, studentId, reservation);
       await _fetchAllPendingReservations();
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Reservation for ${reservation['items'].map((e) => e['label']).join(", ")} approved successfully!'),
+          content: Text('Reservation for ${reservation['label'] ?? 'items'} approved successfully!'),
           backgroundColor: Colors.green,
         ),
       );
@@ -194,6 +199,62 @@ class _ReservationListPageState extends State<ReservationListPage> {
           backgroundColor: Colors.red,
         ),
       );
+    }
+  }
+
+  Future<void> _sendNotificationToUser(String userId, String userName, String studentName, String studentId, Map<String, dynamic> reservation) async {
+    try {
+      List<dynamic> orderItems = reservation['items'] ?? [];
+      List<Map<String, dynamic>> orderSummary = [];
+
+      if (orderItems.isNotEmpty) {
+        for (var item in orderItems) {
+          double pricePerPiece = item['price'] ?? 0.0;
+          int quantity = item['quantity'] ?? 1;
+          double totalPrice = pricePerPiece * quantity;
+
+          orderSummary.add({
+            'label': item['label'],
+            'itemSize': item['itemSize'],
+            'quantity': quantity,
+            'pricePerPiece': pricePerPiece,
+            'totalPrice': totalPrice,
+          });
+        }
+      } else {
+        double pricePerPiece = reservation['price'] ?? 0.0;
+        int quantity = reservation['quantity'] ?? 1;
+        double totalPrice = pricePerPiece * quantity;
+
+        orderSummary.add({
+          'label': reservation['label'],
+          'itemSize': reservation['itemSize'],
+          'quantity': quantity,
+          'pricePerPiece': pricePerPiece,
+          'totalPrice': totalPrice,
+        });
+      }
+
+      String notificationMessage;
+      if (orderSummary.length > 1) {
+        notificationMessage = 'Dear $studentName (ID: $studentId), your bulk reservation (${orderSummary.length} items) has been approved.';
+      } else {
+        notificationMessage = 'Dear $studentName (ID: $studentId), your reservation for ${orderSummary[0]['label']} (${orderSummary[0]['itemSize']}) has been approved.';
+      }
+
+      await _firestore.collection('users').doc(userId).collection('notifications').add({
+        'title': 'Reservation Approved',
+        'message': notificationMessage,
+        'orderSummary': orderSummary,
+        'studentName': studentName,
+        'studentId': studentId,
+        'timestamp': FieldValue.serverTimestamp(),
+        'status': 'unread',
+      });
+
+      print('Notification sent to user: $userName');
+    } catch (e) {
+      print('Error sending notification: $e');
     }
   }
 
@@ -225,70 +286,6 @@ class _ReservationListPageState extends State<ReservationListPage> {
           backgroundColor: Colors.red,
         ),
       );
-    }
-  }
-
-
-  Future<void> _sendNotificationToUser(String userId, String userName, String studentName, String studentId, Map<String, dynamic> reservation) async {
-    try {
-      List<dynamic> orderItems = reservation['items'] ?? [];
-      List<Map<String, dynamic>> orderSummary = [];
-
-      if (orderItems.isNotEmpty) {
-        for (var item in orderItems) {
-          int quantity = item['quantity'] ?? 1;
-          double price = item['price'] ?? 0.0;
-          double pricePerPiece = price / quantity;
-          double totalPrice = pricePerPiece * quantity;
-
-          orderSummary.add({
-            'label': item['label'],
-            'itemSize': item['itemSize'],
-            'quantity': quantity,
-            'pricePerPiece': pricePerPiece,
-            'totalPrice': totalPrice,
-          });
-        }
-      } else {
-        int quantity = reservation['quantity'] ?? 1;
-        double price = reservation['price'] ?? 0.0;
-        double pricePerPiece = price / quantity;
-        double totalPrice = pricePerPiece * quantity;
-
-        orderSummary.add({
-          'label': reservation['label'],
-          'itemSize': reservation['itemSize'],
-          'quantity': quantity,
-          'pricePerPiece': pricePerPiece,
-          'totalPrice': totalPrice,
-        });
-      }
-
-      String notificationMessage;
-      if (orderSummary.length > 1) {
-        notificationMessage = 'Dear $studentName (ID: $studentId), your bulk reservation (${orderSummary.length} items) has been approved.';
-      } else {
-        notificationMessage = 'Dear $studentName (ID: $studentId), your reservation for ${orderSummary[0]['label']} (${orderSummary[0]['itemSize']}) has been approved.';
-      }
-
-      CollectionReference notificationsRef = FirebaseFirestore.instance
-          .collection('users')
-          .doc(userId)
-          .collection('notifications');
-
-      await notificationsRef.add({
-        'title': 'Reservation Approved',
-        'message': notificationMessage,
-        'orderSummary': orderSummary,
-        'studentName': studentName,
-        'studentId': studentId,
-        'timestamp': FieldValue.serverTimestamp(),
-        'status': 'unread',
-      });
-
-      print('Notification sent to user: $userName');
-    } catch (e) {
-      print('Error sending notification: $e');
     }
   }
 
@@ -380,9 +377,9 @@ class _ReservationListPageState extends State<ReservationListPage> {
                                     },
                                     child: Text('Approve'),
                                   ),
-                                  SizedBox(width: 8), // Add space between buttons
+                                  SizedBox(width: 8),
                                   ElevatedButton(
-                                    style: ElevatedButton.styleFrom(backgroundColor: Colors.red), // Set button color to red
+                                    style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
                                     onPressed: () {
                                       _rejectReservation(reservation);
                                     },
@@ -436,11 +433,23 @@ class _ReservationListPageState extends State<ReservationListPage> {
                                 : 'No Date Provided',
                           )),
                           DataCell(
-                            ElevatedButton(
-                              onPressed: () {
-                                _approveReservation(reservation);
-                              },
-                              child: Text('Approve'),
+                            Row(
+                              children: [
+                                ElevatedButton(
+                                  onPressed: () {
+                                    _approveReservation(reservation);
+                                  },
+                                  child: Text('Approve'),
+                                ),
+                                SizedBox(width: 8),
+                                ElevatedButton(
+                                  style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+                                  onPressed: () {
+                                    _rejectReservation(reservation);
+                                  },
+                                  child: Text('Reject'),
+                                ),
+                              ],
                             ),
                           ),
                         ],
