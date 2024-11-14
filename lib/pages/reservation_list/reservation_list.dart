@@ -113,6 +113,7 @@ class _ReservationListPageState extends State<ReservationListPage> {
     });
   }
 
+
   Future<void> _approveReservation(Map<String, dynamic> reservation) async {
     try {
       String userId = reservation['userId'] ?? '';
@@ -195,6 +196,38 @@ class _ReservationListPageState extends State<ReservationListPage> {
       );
     }
   }
+
+  Future<void> _rejectReservation(Map<String, dynamic> reservation) async {
+    try {
+      String userId = reservation['userId'] ?? '';
+      String orderId = reservation['orderId'] ?? '';
+
+      if (userId.isEmpty || orderId.isEmpty) {
+        throw Exception('Invalid reservation data: userId or orderId is missing.');
+      }
+
+      // Delete the reservation from Firestore
+      await _firestore.collection('users').doc(userId).collection('orders').doc(orderId).delete();
+
+      await _fetchAllPendingReservations();
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Reservation for ${reservation['label']} rejected successfully!'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } catch (e) {
+      print('Error rejecting reservation: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to reject reservation: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
 
   Future<void> _sendNotificationToUser(String userId, String userName, String studentName, String studentId, Map<String, dynamic> reservation) async {
     try {
@@ -339,11 +372,23 @@ class _ReservationListPageState extends State<ReservationListPage> {
                                   : 'No Date Provided',
                             )),
                             DataCell(
-                              ElevatedButton(
-                                onPressed: () {
-                                  _approveReservation(reservation);
-                                },
-                                child: Text('Approve'),
+                              Row(
+                                children: [
+                                  ElevatedButton(
+                                    onPressed: () {
+                                      _approveReservation(reservation);
+                                    },
+                                    child: Text('Approve'),
+                                  ),
+                                  SizedBox(width: 8), // Add space between buttons
+                                  ElevatedButton(
+                                    style: ElevatedButton.styleFrom(backgroundColor: Colors.red), // Set button color to red
+                                    onPressed: () {
+                                      _rejectReservation(reservation);
+                                    },
+                                    child: Text('Reject'),
+                                  ),
+                                ],
                               ),
                             ),
                           ],

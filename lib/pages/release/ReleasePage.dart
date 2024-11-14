@@ -35,131 +35,169 @@ class _ReleasePageState extends State<ReleasePage> {
       isLoading = true;
     });
 
-    QuerySnapshot approvedReservationsSnapshot = await _firestore.collection('approved_reservation').get();
+    try {
+      QuerySnapshot approvedReservationsSnapshot = await _firestore.collection('approved_reservation').get();
 
-    for (var doc in approvedReservationsSnapshot.docs) {
-      Map<String, dynamic> transactionData = doc.data() as Map<String, dynamic>;
+      if (approvedReservationsSnapshot.docs.isEmpty) {
+      } else {
+      }
 
-      // Add additional fields to the transaction data
-      transactionData['transactionId'] = doc.id;
-      transactionData['userName'] = transactionData['name'] ?? 'Unknown User';
-      transactionData['studentId'] = transactionData['studentId'] ?? 'Unknown ID';
-      transactionData['category'] = transactionData['mainCategory'] ?? 'Unknown Category';
-      transactionData['label'] = transactionData['label'] ?? 'No Label';
-      transactionData['itemSize'] = transactionData['itemSize'] ?? 'Unknown Size';
-      transactionData['quantity'] = transactionData['quantity'] ?? 1;
-      transactionData['pricePerPiece'] = transactionData['pricePerPiece'] ?? 0.0;
+      for (var doc in approvedReservationsSnapshot.docs) {
+        Map<String, dynamic> transactionData = doc.data() as Map<String, dynamic>;
+        transactionData['transactionId'] = doc.id;
+        transactionData['userName'] = transactionData['name'] ?? 'Unknown User';
+        transactionData['studentId'] = transactionData['studentId'] ?? 'Unknown ID';
+        transactionData['category'] = transactionData['mainCategory'] ?? 'Unknown Category';
+        transactionData['label'] = transactionData['label'] ?? 'No Label';
+        transactionData['itemSize'] = transactionData['itemSize'] ?? 'Unknown Size';
+        transactionData['quantity'] = transactionData['quantity'] ?? 1;
+        transactionData['pricePerPiece'] = transactionData['pricePerPiece'] ?? 0.0;
 
-      // Calculate the total price for the transaction
-      double totalPrice = transactionData['quantity'] * transactionData['pricePerPiece'];
-      transactionData['totalPrice'] = totalPrice.toStringAsFixed(2);
+        double totalPrice = transactionData['quantity'] * transactionData['pricePerPiece'];
+        transactionData['totalPrice'] = totalPrice.toStringAsFixed(2);
 
-      approvedTransactions.add(transactionData);
+        approvedTransactions.add(transactionData);
+      }
+
+      approvedTransactions.sort((a, b) {
+        Timestamp aTimestamp = a['approvalDate'] != null && a['approvalDate'] is Timestamp
+            ? a['approvalDate']
+            : Timestamp.now();
+        Timestamp bTimestamp = b['approvalDate'] != null && b['approvalDate'] is Timestamp
+            ? b['approvalDate']
+            : Timestamp.now();
+        return bTimestamp.compareTo(aTimestamp);
+      });
+
+      setState(() {
+        allPendingReservations = approvedTransactions;
+        isLoading = false;
+      });
+    } catch (e) {
+      setState(() {
+        isLoading = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error fetching approved reservations: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
     }
-
-    // Sort transactions by approval date in descending order
-    approvedTransactions.sort((a, b) {
-      Timestamp aTimestamp = a['approvalDate'] != null && a['approvalDate'] is Timestamp
-          ? a['approvalDate']
-          : Timestamp.now();
-      Timestamp bTimestamp = b['approvalDate'] != null && b['approvalDate'] is Timestamp
-          ? b['approvalDate']
-          : Timestamp.now();
-      return bTimestamp.compareTo(aTimestamp);
-    });
-
-    // Update the state with the processed transactions
-    setState(() {
-      allPendingReservations = approvedTransactions; // Update the variable name accordingly
-      isLoading = false;
-    });
   }
 
-  Future<void> _approveReservation(Map<String, dynamic> reservation) async {
+  void _showORNumberDialog(Map<String, dynamic> reservation) {
+    final _orNumberController = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: Text('Enter OR Number'),
+          content: TextField(
+            controller: _orNumberController,
+            keyboardType: TextInputType.number,
+            maxLength: 8,
+            decoration: InputDecoration(
+              hintText: 'Enter 8-digit OR Number',
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () {
+                String orNumber = _orNumberController.text;
+
+                if (orNumber.length == 8 && int.tryParse(orNumber) != null) {
+                  Navigator.pop(context);
+                  _approveReservation(reservation, orNumber);
+                } else {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Please enter a valid 8-digit OR number.'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                }
+              },
+              child: Text('Submit'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _approveReservation(Map<String, dynamic> reservation, String orNumber) async {
     try {
+      reservation['orNumber'] = orNumber;
       String userId = reservation['userId'] ?? '';
-      String orderId = reservation['orderId'] ?? '';
       String userName = reservation['userName'] ?? 'Unknown User';
       String studentId = reservation['studentId'] ?? 'Unknown ID';
-      String studentName = reservation['userName'] ?? 'Unknown User'; // assuming userName as studentName
+      String studentName = reservation['userName'] ?? 'Unknown User';
 
-      if (userId.isEmpty || orderId.isEmpty) {
-        throw Exception('Invalid reservation data: userId or orderId is missing.');
+      if (userId.isEmpty) {
+        throw Exception('Invalid reservation data: userId is missing.');
       }
 
-      DocumentSnapshot orderDoc = await _firestore
-          .collection('users')
-          .doc(userId)
-          .collection('orders')
-          .doc(orderId)
-          .get();
+      Timestamp reservationDate = reservation['reservationDate'] ?? Timestamp.now();
+      String label = (reservation['label'] ?? 'No Label').trim();
+      String itemSize = (reservation['itemSize'] ?? 'Unknown Size').trim();
+      String mainCategory = (reservation['mainCategory'] ?? '').trim();
+      String subCategory = (reservation['subCategory'] ?? '').trim();
+      int quantity = reservation['quantity'] ?? 0;
+      double pricePerPiece = reservation['pricePerPiece'] ?? 0.0;
+      double totalPrice = pricePerPiece * quantity;
 
-      if (!orderDoc.exists) {
-        throw Exception('Order not found');
+      if (label.isEmpty || mainCategory.isEmpty || subCategory.isEmpty || quantity <= 0) {
+        throw Exception('Invalid item data: missing label, category, subCategory, or quantity.');
       }
 
-      Timestamp reservationDate = orderDoc['orderDate'] ?? Timestamp.now();
-      List<dynamic> orderItems = reservation['items'] ?? [];
-      if (orderItems.isEmpty) {
-        throw Exception('No items found in the reservation');
-      }
+      await _deductItemQuantity(mainCategory, subCategory, label, itemSize, quantity);
 
-      for (var item in orderItems) {
-        String label = (item['label'] ?? 'No Label').trim();
-        String itemSize = (item['itemSize'] ?? 'Unknown Size').trim();
-        String mainCategory = (item['category'] ?? '').trim();
-        String subCategory = (item['courseLabel'] ?? '').trim();
-        int quantity = item['quantity'] ?? 0;
-        double price = item['price'] ?? 0.0;
+      await _firestore.collection('approved_items').add({
+        'reservationDate': reservationDate,
+        'approvalDate': FieldValue.serverTimestamp(),
+        'label': label,
+        'itemSize': itemSize,
+        'quantity': quantity,
+        'name': userName,
+        'pricePerPiece': pricePerPiece,
+        'totalPrice': totalPrice,
+        'mainCategory': mainCategory,
+        'subCategory': subCategory,
+        'orNumber': orNumber,
+      });
 
-        if (label.isEmpty || mainCategory.isEmpty || subCategory.isEmpty || quantity <= 0) {
-          throw Exception('Invalid item data: missing label, category, subCategory, or quantity.');
-        }
+      await _firestore.collection('admin_transactions').add({
+        'cartItemRef': reservation['transactionId'],
+        'category': mainCategory,
+        'courseLabel': subCategory,
+        'label': label,
+        'itemSize': itemSize,
+        'quantity': quantity,
+        'studentNumber': studentId,
+        'timestamp': FieldValue.serverTimestamp(),
+        'userId': userId,
+        'userName': userName,
+        'pricePerPiece': pricePerPiece,
+        'totalPrice': totalPrice,
+        'orNumber': orNumber,
+      });
 
-        await _deductItemQuantity(mainCategory, subCategory, label, itemSize, quantity);
-
-        await _firestore.collection('approved_items').add({
-          'reservationDate': reservationDate,
-          'approvalDate': FieldValue.serverTimestamp(),
-          'label': label,
-          'itemSize': itemSize,
-          'quantity': quantity,
-          'name': userName,
-          'pricePerPiece': price,
-          'mainCategory': mainCategory,
-          'subCategory': subCategory,
-        });
-
-        await _firestore.collection('admin_transactions').add({
-          'cartItemRef': orderId,
-          'category': mainCategory,
-          'courseLabel': subCategory,
-          'label': label,
-          'itemSize': itemSize,
-          'quantity': quantity,
-          'studentNumber': studentId,
-          'timestamp': FieldValue.serverTimestamp(),
-          'userId': userId,
-          'userName': userName,
-        });
-      }
-
-      // Update order status to 'approved'
-      await _firestore.collection('users').doc(userId).collection('orders').doc(orderId).update({'status': 'approved'});
-
-      // Send notification with student name and student ID
       await _sendNotificationToUser(userId, userName, studentName, studentId, reservation);
       await fetchAllApprovedTransactions();
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Reservation for ${reservation['items'].map((e) => e['label']).join(", ")} approved successfully!'),
+          content: Text('Reservation for $label approved successfully!'),
           backgroundColor: Colors.green,
         ),
       );
-
     } catch (e) {
-      print('Error approving reservation: $e');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Failed to approve reservation: $e'),
@@ -171,17 +209,14 @@ class _ReleasePageState extends State<ReleasePage> {
 
   Future<void> _deductItemQuantity(String category, String subCategory, String label, String size, int quantity) async {
     try {
-      // Map the specific known category format to match Firestore structure
       if (category == 'merch_and_accessories') {
         category = 'Merch & Accessories';
       } else {
-        // Normalize the category name for other potential inconsistencies
         category = category.toLowerCase().replaceAll('_', ' ');
       }
 
       CollectionReference itemsRef;
 
-      // Adjust the Firestore path based on the normalized or mapped category
       if (category == 'senior high items') {
         itemsRef = _firestore.collection('Inventory_stock').doc('senior_high_items').collection('Items');
 
@@ -231,7 +266,6 @@ class _ReleasePageState extends State<ReleasePage> {
         }
 
       } else if (category == 'Merch & Accessories') {
-        // Directly access fields in "Merch & Accessories" document
         DocumentSnapshot merchDoc = await _firestore.collection('Inventory_stock').doc('Merch & Accessories').get();
         if (!merchDoc.exists) {
           throw Exception('Merch & Accessories document not found');
@@ -248,7 +282,6 @@ class _ReleasePageState extends State<ReleasePage> {
             if (currentStock >= quantity) {
               itemData['sizes'][size]['quantity'] = currentStock - quantity;
 
-              // Update only the specific item field in "Merch & Accessories" document
               await _firestore.collection('Inventory_stock').doc('Merch & Accessories').update({label: itemData});
             } else {
               throw Exception('Insufficient stock for $label size $size. Current stock: $currentStock, required: $quantity');
@@ -265,12 +298,34 @@ class _ReleasePageState extends State<ReleasePage> {
       }
 
     } catch (e) {
-      print('Error in _deductItemQuantity: $e');
       throw Exception('Failed to deduct stock: $e');
     }
   }
 
+  Future<void> _rejectReservation(Map<String, dynamic> reservation) async {
+    try {
+      await _firestore.collection('approved_reservation').doc(reservation['transactionId']).delete();
+
+      await fetchAllApprovedTransactions();
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Reservation for ${reservation['label']} rejected successfully!'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to reject reservation: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
   Future<void> _sendNotificationToUser(String userId, String userName, String studentName, String studentId, Map<String, dynamic> reservation) async {
+    await _firestore.collection('approved_reservation').doc(reservation['transactionId']).delete();
     try {
       List<dynamic> orderItems = reservation['items'] ?? [];
       List<Map<String, dynamic>> orderSummary = [];
@@ -278,8 +333,7 @@ class _ReleasePageState extends State<ReleasePage> {
       if (orderItems.isNotEmpty) {
         for (var item in orderItems) {
           int quantity = item['quantity'] ?? 1;
-          double price = item['price'] ?? 0.0;
-          double pricePerPiece = price / quantity;
+          double pricePerPiece = item['price'] ?? 0.0;
           double totalPrice = pricePerPiece * quantity;
 
           orderSummary.add({
@@ -292,8 +346,7 @@ class _ReleasePageState extends State<ReleasePage> {
         }
       } else {
         int quantity = reservation['quantity'] ?? 1;
-        double price = reservation['price'] ?? 0.0;
-        double pricePerPiece = price / quantity;
+        double pricePerPiece = reservation['pricePerPiece'] ?? 0.0;
         double totalPrice = pricePerPiece * quantity;
 
         orderSummary.add({
@@ -327,7 +380,6 @@ class _ReleasePageState extends State<ReleasePage> {
         'status': 'unread',
       });
 
-      print('Notification sent to user: $userName');
     } catch (e) {
       print('Error sending notification: $e');
     }
@@ -381,127 +433,53 @@ class _ReleasePageState extends State<ReleasePage> {
                     DataColumn(label: Text('Order Date')),
                     DataColumn(label: Text('Action')),
                   ],
-                  rows: allPendingReservations.expand<DataRow>((reservation) {
-                    final List orderItems = reservation['items'] ?? [];
-                    bool isBulkOrder = orderItems.length > 1;
-                    bool isExpanded = expandedBulkOrders.contains(reservation['orderId']);
+                  rows: allPendingReservations.map<DataRow>((reservation) {
+                    String name = reservation['userName'] ?? 'Unknown User';
+                    String studentId = reservation['studentId'] ?? 'Unknown ID';
+                    String label = reservation['label'] ?? 'No Label';
+                    String size = reservation['itemSize'] ?? 'No Size';
+                    int quantity = reservation['quantity'] ?? 1;
+                    double pricePerPiece = reservation['pricePerPiece'] ?? 0.0;
+                    double totalPrice = double.parse(reservation['totalPrice'] ?? '0.0');
+                    String orderDate = reservation['reservationDate'] != null &&
+                        reservation['reservationDate'] is Timestamp
+                        ? DateFormat('yyyy-MM-dd HH:mm:ss')
+                        .format((reservation['reservationDate'] as Timestamp).toDate())
+                        : 'No Date Provided';
 
-                    if (!isBulkOrder) {
-                      final singleItem = orderItems[0];
-                      int quantity = singleItem['quantity'] ?? 1;
-                      double pricePerPiece = double.tryParse(singleItem['price']?.toString() ?? '0') ?? 0.0;
-                      double totalPrice = double.tryParse(singleItem['totalPrice']?.toString() ?? (pricePerPiece * quantity).toString()) ?? 0.0;
-                      String size = singleItem['itemSize'] ?? 'No Size';
-                      String label = singleItem['label'] ?? 'No Label';
-
-                      return [
-                        DataRow(
-                          key: ValueKey(reservation['orderId']),
-                          cells: [
-                            DataCell(Text(reservation['userName'] ?? 'Unknown User')),
-                            DataCell(Text(reservation['studentId'] ?? 'Unknown ID')),
-                            DataCell(Text(label)),
-                            DataCell(Text(size)),
-                            DataCell(Text('$quantity')),
-                            DataCell(Text('₱${pricePerPiece.toStringAsFixed(2)}')),
-                            DataCell(Text('₱${totalPrice.toStringAsFixed(2)}')),
-                            DataCell(Text(
-                              reservation['orderDate'] != null && reservation['orderDate'] is Timestamp
-                                  ? DateFormat('yyyy-MM-dd HH:mm:ss').format(
-                                (reservation['orderDate'] as Timestamp).toDate(),
-                              )
-                                  : 'No Date Provided',
-                            )),
-                            DataCell(
+                    return DataRow(
+                      key: ValueKey(reservation['transactionId']),
+                      cells: [
+                        DataCell(Text(name)),
+                        DataCell(Text(studentId)),
+                        DataCell(Text(label)),
+                        DataCell(Text(size)),
+                        DataCell(Text('$quantity')),
+                        DataCell(Text('₱${pricePerPiece.toStringAsFixed(2)}')),
+                        DataCell(Text('₱${totalPrice.toStringAsFixed(2)}')),
+                        DataCell(Text(orderDate)),
+                        DataCell(
+                          Row(
+                            children: [
                               ElevatedButton(
                                 onPressed: () {
-                                  _approveReservation(reservation);
+                                  _showORNumberDialog(reservation);
                                 },
                                 child: Text('Approve'),
                               ),
-                            ),
-                          ],
-                        ),
-                      ];
-                    }
-
-                    // Handling bulk orders with expandable rows
-                    double totalQuantity = orderItems.fold<double>(0, (sum, item) => sum + (item['quantity'] ?? 1));
-                    double totalPrice = orderItems.fold<double>(
-                        0, (sum, item) => sum + ((item['quantity'] ?? 1) * (double.tryParse(item['price']?.toString() ?? '0') ?? 0.0)));
-
-                    List<DataRow> rows = [
-                      DataRow(
-                        key: ValueKey(reservation['orderId']),
-                        cells: [
-                          DataCell(Text(reservation['userName'] ?? 'Unknown User')),
-                          DataCell(Text(reservation['studentId'] ?? 'Unknown ID')),
-                          DataCell(Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Text('Bulk Order (${orderItems.length} items)'),
-                              IconButton(
-                                icon: Icon(isExpanded ? Icons.expand_less : Icons.expand_more),
+                              SizedBox(width: 8),
+                              ElevatedButton(
+                                style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
                                 onPressed: () {
-                                  setState(() {
-                                    if (isExpanded) {
-                                      expandedBulkOrders.remove(reservation['orderId']);
-                                    } else {
-                                      expandedBulkOrders.add(reservation['orderId']);
-                                    }
-                                  });
+                                  _rejectReservation(reservation);
                                 },
+                                child: Text('Reject'),
                               ),
                             ],
-                          )),
-                          DataCell(Text('')),
-                          DataCell(Text('$totalQuantity')),
-                          DataCell(Text('')),
-                          DataCell(Text('₱${totalPrice.toStringAsFixed(2)}')),
-                          DataCell(Text(
-                            reservation['orderDate'] != null && reservation['orderDate'] is Timestamp
-                                ? DateFormat('yyyy-MM-dd HH:mm:ss').format(
-                              (reservation['orderDate'] as Timestamp).toDate(),
-                            )
-                                : 'No Date Provided',
-                          )),
-                          DataCell(
-                            ElevatedButton(
-                              onPressed: () {
-                                _approveReservation(reservation);
-                              },
-                              child: Text('Approve'),
-                            ),
                           ),
-                        ],
-                      ),
-                    ];
-
-                    if (isExpanded) {
-                      rows.addAll(orderItems.map<DataRow>((item) {
-                        int itemQuantity = item['quantity'] ?? 1;
-                        double pricePerPiece = double.tryParse(item['price']?.toString() ?? '0') ?? 0.0;
-                        double itemTotalPrice = double.tryParse(item['totalPrice']?.toString() ?? (pricePerPiece * itemQuantity).toString()) ?? 0.0;
-                        String itemLabel = item['label'] ?? 'No Label';
-                        String itemSize = item['itemSize'] ?? 'No Size';
-
-                        return DataRow(
-                          key: ValueKey('${reservation['orderId']}_${itemLabel}'),
-                          cells: [
-                            DataCell(Text('')), // Empty for alignment
-                            DataCell(Text('')), // Empty for alignment
-                            DataCell(Text(itemLabel)),
-                            DataCell(Text(itemSize)),
-                            DataCell(Text('$itemQuantity')),
-                            DataCell(Text('₱${pricePerPiece.toStringAsFixed(2)}')),
-                            DataCell(Text('₱${itemTotalPrice.toStringAsFixed(2)}')),
-                            DataCell(Text('')), // Empty for alignment
-                            DataCell(Text('')), // Empty for alignment
-                          ],
-                        );
-                      }).toList());
-                    }
-                    return rows;
+                        ),
+                      ],
+                    );
                   }).toList(),
                 ),
               ),
