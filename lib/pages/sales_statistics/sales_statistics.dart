@@ -72,61 +72,18 @@ class _SalesStatisticsPageState extends State<SalesStatisticsPage> {
       for (var doc in adminTransactionsSnapshot.docs) {
         var transactionData = doc.data() as Map<String, dynamic>;
 
-        if (transactionData['category'] != null && transactionData['quantity'] != null) {
-          String itemLabel = transactionData['label'] ?? 'Unknown';
-          String itemSize = transactionData['itemSize'] ?? 'Unknown';
-          double quantity = (transactionData['quantity'] ?? 0).toDouble();
-          String category = transactionData['category'] ?? 'Unknown';
-          String itemKey = '$itemLabel ($itemSize)';
-
-          if (category == 'senior_high_items' || category == 'Uniform') {
-            seniorHighSales[itemKey] = (seniorHighSales[itemKey] ?? 0) + quantity;
-          } else if (category == 'college_items') {
-            collegeSales[itemKey] = (collegeSales[itemKey] ?? 0) + quantity;
-          } else if (category == 'merch_and_accessories') {
-            merchSales[itemKey] = (merchSales[itemKey] ?? 0) + quantity;
-          }
-        }
-
-        if (transactionData['cartItems'] is List) {
-          List<dynamic> cartItems = transactionData['cartItems'];
-          for (var item in cartItems) {
-            String itemLabel = item['itemLabel'] ?? 'Unknown';
-            String itemSize = item['itemSize'] ?? 'Unknown';
-            double quantity = (item['quantity'] ?? 0).toDouble();
-            String category = item['category'] ?? 'Unknown';
-            String itemKey = '$itemLabel ($itemSize)';
-
-            if (category == 'senior_high_items' || category == 'Uniform') {
-              seniorHighSales[itemKey] = (seniorHighSales[itemKey] ?? 0) + quantity;
-            } else if (category == 'college_items') {
-              collegeSales[itemKey] = (collegeSales[itemKey] ?? 0) + quantity;
-            } else if (category == 'merch_and_accessories') {
-              merchSales[itemKey] = (merchSales[itemKey] ?? 0) + quantity;
-            }
-          }
-        }
-      }
-
-      QuerySnapshot approvedPreordersSnapshot = await _firestore.collection('approved_preorders').get();
-      for (var doc in approvedPreordersSnapshot.docs) {
-        var preorderData = doc.data() as Map<String, dynamic>;
-
-        if (preorderData['items'] is List) {
-          List<dynamic> items = preorderData['items'];
-          for (var item in items) {
+        if (transactionData['items'] is List) {
+          for (var item in transactionData['items']) {
             String itemLabel = item['label'] ?? 'Unknown';
-            String itemSize = item['itemSize'] ?? 'Unknown';
             double quantity = (item['quantity'] ?? 0).toDouble();
-            String category = item['category'] ?? 'Unknown';
-            String itemKey = '$itemLabel ($itemSize)';
+            String category = item['mainCategory'] ?? 'Unknown';
 
-            if (category == 'senior_high_items' || category == 'Uniform') {
-              seniorHighSales[itemKey] = (seniorHighSales[itemKey] ?? 0) + quantity;
+            if (category == 'senior_high_items') {
+              seniorHighSales[itemLabel] = (seniorHighSales[itemLabel] ?? 0) + quantity;
             } else if (category == 'college_items') {
-              collegeSales[itemKey] = (collegeSales[itemKey] ?? 0) + quantity;
+              collegeSales[itemLabel] = (collegeSales[itemLabel] ?? 0) + quantity;
             } else if (category == 'merch_and_accessories') {
-              merchSales[itemKey] = (merchSales[itemKey] ?? 0) + quantity;
+              merchSales[itemLabel] = (merchSales[itemLabel] ?? 0) + quantity;
             }
           }
         }

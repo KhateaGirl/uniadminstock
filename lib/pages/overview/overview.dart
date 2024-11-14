@@ -44,42 +44,20 @@ class _OverviewPageState extends State<OverviewPage> {
 
   Future<void> _fetchLatestSale() async {
     try {
-      // Fetch latest sale from admin_transactions
       QuerySnapshot adminLatestSnapshot = await _firestore
           .collection('admin_transactions')
           .orderBy('timestamp', descending: true)
           .limit(1)
           .get();
 
-      // Fetch latest preorder from approved_preorders
-      QuerySnapshot preorderLatestSnapshot = await _firestore
-          .collection('approved_preorders')
-          .orderBy('preOrderDate', descending: true)
-          .limit(1)
-          .get();
-
       String latestLabel = 'N/A';
-      Timestamp? latestTimestamp;
 
       if (adminLatestSnapshot.docs.isNotEmpty) {
         var adminTransaction = adminLatestSnapshot.docs.first.data() as Map<String, dynamic>;
-        latestTimestamp = adminTransaction['timestamp'];
         latestLabel = adminTransaction['label'] ?? 'N/A';
 
-        if (adminTransaction['cartItems'] is List && (adminTransaction['cartItems'] as List).isNotEmpty) {
-          latestLabel = adminTransaction['cartItems'][0]['itemLabel'] ?? latestLabel;
-        }
-      }
-
-      if (preorderLatestSnapshot.docs.isNotEmpty) {
-        var preorderData = preorderLatestSnapshot.docs.first.data() as Map<String, dynamic>;
-        Timestamp preorderTimestamp = preorderData['preOrderDate'];
-        String preorderLabel = (preorderData['items'] as List)[0]['label'] ?? 'N/A';
-
-        // Check if this preorder is more recent
-        if (latestTimestamp == null || preorderTimestamp.compareTo(latestTimestamp) > 0) {
-          latestTimestamp = preorderTimestamp;
-          latestLabel = preorderLabel;
+        if (adminTransaction['items'] is List && (adminTransaction['items'] as List).isNotEmpty) {
+          latestLabel = adminTransaction['items'][0]['label'] ?? latestLabel;
         }
       }
 
@@ -93,69 +71,26 @@ class _OverviewPageState extends State<OverviewPage> {
 
   Future<void> _fetchSalesStatistics() async {
     try {
-      // Initialize sales maps
       Map<String, double> collegeSales = {};
       Map<String, double> seniorHighSales = {};
       Map<String, double> merchSales = {};
 
-      // Fetch from admin_transactions collection
       QuerySnapshot adminTransactionsSnapshot = await _firestore.collection('admin_transactions').get();
       for (var doc in adminTransactionsSnapshot.docs) {
         var transactionData = doc.data() as Map<String, dynamic>;
 
-        if (transactionData['category'] != null && transactionData['quantity'] != null) {
-          String itemLabel = transactionData['label'] ?? 'Unknown';
-          double quantity = (transactionData['quantity'] ?? 0).toDouble();
-          String category = transactionData['category'] ?? 'Unknown';
-          String itemKey = itemLabel;
-
-          if (category == 'senior_high_items') {
-            seniorHighSales[itemKey] = (seniorHighSales[itemKey] ?? 0) + quantity;
-          } else if (category == 'college_items') {
-            collegeSales[itemKey] = (collegeSales[itemKey] ?? 0) + quantity;
-          } else if (category == 'merch_and_accessories') {
-            merchSales[itemKey] = (merchSales[itemKey] ?? 0) + quantity;
-          }
-        }
-
-        if (transactionData['cartItems'] is List) {
-          List<dynamic> cartItems = transactionData['cartItems'];
-          for (var item in cartItems) {
-            String itemLabel = item['itemLabel'] ?? 'Unknown';
-            double quantity = (item['quantity'] ?? 0).toDouble();
-            String category = item['category'] ?? 'Unknown';
-            String itemKey = itemLabel;
-
-            if (category == 'senior_high_items') {
-              seniorHighSales[itemKey] = (seniorHighSales[itemKey] ?? 0) + quantity;
-            } else if (category == 'college_items') {
-              collegeSales[itemKey] = (collegeSales[itemKey] ?? 0) + quantity;
-            } else if (category == 'merch_and_accessories') {
-              merchSales[itemKey] = (merchSales[itemKey] ?? 0) + quantity;
-            }
-          }
-        }
-      }
-
-      // Fetch from approved_preorders collection
-      QuerySnapshot approvedPreordersSnapshot = await _firestore.collection('approved_preorders').get();
-      for (var doc in approvedPreordersSnapshot.docs) {
-        var preorderData = doc.data() as Map<String, dynamic>;
-
-        if (preorderData['items'] is List) {
-          List<dynamic> items = preorderData['items'];
-          for (var item in items) {
+        if (transactionData['items'] is List) {
+          for (var item in transactionData['items']) {
             String itemLabel = item['label'] ?? 'Unknown';
             double quantity = (item['quantity'] ?? 0).toDouble();
-            String category = item['category'] ?? 'Unknown';
-            String itemKey = itemLabel;
+            String category = item['mainCategory'] ?? 'Unknown';
 
             if (category == 'senior_high_items') {
-              seniorHighSales[itemKey] = (seniorHighSales[itemKey] ?? 0) + quantity;
+              seniorHighSales[itemLabel] = (seniorHighSales[itemLabel] ?? 0) + quantity;
             } else if (category == 'college_items') {
-              collegeSales[itemKey] = (collegeSales[itemKey] ?? 0) + quantity;
+              collegeSales[itemLabel] = (collegeSales[itemLabel] ?? 0) + quantity;
             } else if (category == 'merch_and_accessories') {
-              merchSales[itemKey] = (merchSales[itemKey] ?? 0) + quantity;
+              merchSales[itemLabel] = (merchSales[itemLabel] ?? 0) + quantity;
             }
           }
         }
@@ -176,46 +111,19 @@ class _OverviewPageState extends State<OverviewPage> {
       double totalRevenue = 0.0;
       int totalSales = 0;
 
-      // Fetch from approved_items collection
-      QuerySnapshot approvedItemsSnapshot = await _firestore.collection('approved_items').get();
-      for (var doc in approvedItemsSnapshot.docs) {
-        var sale = doc.data() as Map<String, dynamic>;
+      // Fetch from admin_transactions collection
+      QuerySnapshot adminTransactionsSnapshot = await _firestore.collection('admin_transactions').get();
+      for (var doc in adminTransactionsSnapshot.docs) {
+        var transactionData = doc.data() as Map<String, dynamic>;
 
-        int quantity = sale['quantity'] ?? 0;
-        double pricePerPiece = sale['pricePerPiece'] ?? 0.0;
-        totalRevenue += quantity * pricePerPiece;
-        totalSales += quantity;
-
-        if (sale['cartItems'] is List) {
-          List<dynamic> cartItems = sale['cartItems'];
-          for (var item in cartItems) {
-            int itemQuantity = item['quantity'] ?? 0;
-            double itemPrice = item['pricePerPiece'] ?? 0.0;
-            totalRevenue += itemQuantity * itemPrice;
-            totalSales += itemQuantity;
-          }
-        }
-      }
-
-      // Fetch from approved_preorders collection
-      QuerySnapshot approvedPreordersSnapshot = await _firestore.collection('approved_preorders').get();
-      for (var doc in approvedPreordersSnapshot.docs) {
-        var preorderData = doc.data() as Map<String, dynamic>;
-
-        if (preorderData['items'] is List) {
-          List<dynamic> items = preorderData['items'];
-          for (var item in items) {
-            int quantity = item['quantity'] ?? 0;
-            double price = item['price'] ?? 0.0;
-            totalRevenue += quantity * price;
-            totalSales += quantity;
-          }
-        }
+        // Extract total transaction price and quantity directly from each document
+        totalRevenue += transactionData['totalTransactionPrice'] ?? 0.0;
+        totalSales += (transactionData['totalQuantity'] ?? 0) as int;
       }
 
       setState(() {
-        _totalSales = totalSales;
         _totalRevenue = totalRevenue;
+        _totalSales = totalSales;
       });
     } catch (e) {
       print("Error fetching total revenue and sales: $e");
