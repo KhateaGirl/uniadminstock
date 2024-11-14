@@ -1,7 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
-import 'package:unistock/widgets/custom_text.dart';
 import 'package:intl/intl.dart';
+import 'package:unistock/widgets/custom_text.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
@@ -16,6 +16,7 @@ class _SalesHistoryPageState extends State<SalesHistoryPage> {
   final ScrollController _verticalController = ScrollController();
   final ScrollController _horizontalController = ScrollController();
 
+  Set<String> expandedBulkOrders = Set<String>();
   Future<List<Map<String, dynamic>>>? _salesDataFuture;
   double _totalRevenue = 0.0;
 
@@ -25,53 +26,38 @@ class _SalesHistoryPageState extends State<SalesHistoryPage> {
     _salesDataFuture = _fetchSalesData();
   }
 
-  String _formatDate(Timestamp? timestamp) {
-    if (timestamp == null) return 'N/A';
-    DateTime date = timestamp.toDate();
-    return DateFormat('yyyy-MM-dd HH:mm:ss').format(date);
-  }
-
   Future<List<Map<String, dynamic>>> _fetchSalesData() async {
     List<Map<String, dynamic>> allSalesItems = [];
     double totalRevenue = 0.0;
 
-    try {
-      print("Fetching admin transactions...");
-      QuerySnapshot adminTransactionsSnapshot = await _firestore
-          .collection('admin_transactions')
-          .orderBy('timestamp', descending: true)
-          .get();
+    QuerySnapshot adminTransactionsSnapshot = await _firestore
+        .collection('admin_transactions')
+        .orderBy('timestamp', descending: true)
+        .get();
 
-      for (var transactionDoc in adminTransactionsSnapshot.docs) {
-        var transactionData = transactionDoc.data() as Map<String, dynamic>;
+    for (var transactionDoc in adminTransactionsSnapshot.docs) {
+      var transactionData = transactionDoc.data() as Map<String, dynamic>;
+      totalRevenue += (transactionData['totalTransactionPrice'] ?? 0.0) as double;
 
-        totalRevenue += (transactionData['totalTransactionPrice'] ?? 0.0) as double;
-
-        if (transactionData['items'] is List) {
-          List<dynamic> items = transactionData['items'];
-          for (var item in items) {
-            allSalesItems.add({
-              'orNumber': transactionData['orNumber'] ?? 'N/A',
-              'userName': transactionData['userName'] ?? 'N/A',
-              'studentNumber': transactionData['studentNumber'] ?? 'N/A',
-              'itemLabel': item['label'] ?? 'N/A',
-              'itemSize': item['itemSize'] ?? 'N/A',
-              'quantity': item['quantity'] ?? 0,
-              'category': item['mainCategory'] ?? 'N/A',
-              'totalPrice': item['totalPrice'] ?? 0.0,
-            });
-          }
-        }
+      if (transactionData['items'] is List) {
+        List<dynamic> items = transactionData['items'];
+        allSalesItems.add({
+          'orNumber': transactionData['orNumber'] ?? 'N/A',
+          'userName': transactionData['userName'] ?? 'N/A',
+          'studentNumber': transactionData['studentNumber'] ?? 'N/A',
+          'isBulk': items.length > 1,
+          'items': items,
+          'totalTransactionPrice': transactionData['totalTransactionPrice'],
+          'orderDate': transactionData['timestamp'],
+        });
       }
-
-      _totalRevenue = totalRevenue;
-      print("Sales data fetch completed. Total items: ${allSalesItems.length}");
-      return allSalesItems;
-
-    } catch (e) {
-      print("Error fetching sales data: $e");
-      return [];
     }
+
+    setState(() {
+      _totalRevenue = totalRevenue;
+    });
+
+    return allSalesItems;
   }
 
   Future<void> _generatePDF(List<Map<String, dynamic>> salesData) async {
@@ -105,21 +91,61 @@ class _SalesHistoryPageState extends State<SalesHistoryPage> {
                         pw.Text('Total Price', style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
                       ],
                     ),
-                    // Data rows
-                    ...rowsChunk.map((saleItem) {
-                      return pw.TableRow(
-                        children: [
-                          pw.Text(saleItem['orNumber'] ?? 'N/A'),
-                          pw.Text(saleItem['userName'] ?? 'N/A'),
-                          pw.Text(saleItem['studentNumber'] ?? 'N/A'),
-                          pw.Text(saleItem['itemLabel'] ?? 'N/A'),
-                          pw.Text(saleItem['itemSize'] ?? 'N/A'),
-                          pw.Text(saleItem['quantity'].toString()),
-                          pw.Text(saleItem['category'] ?? 'N/A'),
-                          pw.Text('₱${(saleItem['totalPrice'] ?? 0.0).toStringAsFixed(2)}'),
-                        ],
-                      );
-                    }),
+                    // Data rows with aggregation for bulk orders
+                    ...salesData.map((saleItem) {
+                      if (saleItem['items'] != null && saleItem['items'] is List) {
+                        // For bulk orders
+                        List<pw.TableRow> bulkRows = [
+                          // Bulk order summary row
+                          pw.TableRow(
+                            children: [
+                              pw.Text(saleItem['orNumber'] ?? 'N/A'),
+                              pw.Text(saleItem['userName'] ?? 'N/A'),
+                              pw.Text(saleItem['studentNumber'] ?? 'N/A'),
+                              pw.Text('Bulk Order (${saleItem['items'].length} items)'),
+                              pw.Text(''),
+                              pw.Text(''),
+                              pw.Text(''),
+                              pw.Text('₱${(saleItem['totalTransactionPrice'] ?? 0.0).toStringAsFixed(2)}'),
+                            ],
+                          ),
+                        ];
+
+                        // Individual rows for each item in the bulk order
+                        bulkRows.addAll((saleItem['items'] as List).map<pw.TableRow>((item) {
+                          return pw.TableRow(
+                            children: [
+                              pw.Text(''),
+                              pw.Text(''),
+                              pw.Text(''),
+                              pw.Text(item['label'] ?? 'N/A'),
+                              pw.Text(item['itemSize'] ?? 'N/A'),
+                              pw.Text(item['quantity'].toString()),
+                              pw.Text(item['mainCategory'] ?? 'N/A'),
+                              pw.Text('₱${(item['totalPrice'] ?? 0.0).toStringAsFixed(2)}'),
+                            ],
+                          );
+                        }).toList());
+
+                        return bulkRows;
+                      } else {
+                        // For single orders
+                        return [
+                          pw.TableRow(
+                            children: [
+                              pw.Text(saleItem['orNumber'] ?? 'N/A'),
+                              pw.Text(saleItem['userName'] ?? 'N/A'),
+                              pw.Text(saleItem['studentNumber'] ?? 'N/A'),
+                              pw.Text(saleItem['itemLabel'] ?? 'N/A'),
+                              pw.Text(saleItem['itemSize'] ?? 'N/A'),
+                              pw.Text(saleItem['quantity'].toString()),
+                              pw.Text(saleItem['category'] ?? 'N/A'),
+                              pw.Text('₱${(saleItem['totalPrice'] ?? 0.0).toStringAsFixed(2)}'),
+                            ],
+                          ),
+                        ];
+                      }
+                    }).expand((rows) => rows),
                   ],
                 ),
                 if (page == pageCount - 1) // Add total revenue on the last page
@@ -179,13 +205,11 @@ class _SalesHistoryPageState extends State<SalesHistoryPage> {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return Center(child: CircularProgressIndicator());
           } else if (snapshot.hasError) {
-            print("Error in FutureBuilder: ${snapshot.error}");
             return Center(child: CustomText(text: "Error fetching sales history"));
           } else if (snapshot.hasData && snapshot.data!.isEmpty) {
             return Center(child: CustomText(text: "No sales history found"));
           } else if (snapshot.hasData) {
             final allSalesItems = snapshot.data!;
-
             return Column(
               children: [
                 Expanded(
@@ -199,6 +223,7 @@ class _SalesHistoryPageState extends State<SalesHistoryPage> {
                         controller: _horizontalController,
                         scrollDirection: Axis.horizontal,
                         child: DataTable(
+                          columnSpacing: 16.0,
                           columns: [
                             DataColumn(label: Text('OR Number')),
                             DataColumn(label: Text('Student Name')),
@@ -208,20 +233,77 @@ class _SalesHistoryPageState extends State<SalesHistoryPage> {
                             DataColumn(label: Text('Quantity')),
                             DataColumn(label: Text('Category')),
                             DataColumn(label: Text('Total Price')),
+                            DataColumn(label: Text('Order Date')),
                           ],
-                          rows: allSalesItems.map((saleItem) {
-                            return DataRow(cells: [
-                              DataCell(Text(saleItem['orNumber'] ?? 'N/A')),
-                              DataCell(Text(saleItem['userName'] ?? 'N/A')),
-                              DataCell(Text(saleItem['studentNumber'] ?? 'N/A')),
-                              DataCell(Text(saleItem['itemLabel'] ?? 'N/A')),
-                              DataCell(Text(saleItem['itemSize'] ?? 'N/A')),
-                              DataCell(Text(saleItem['quantity'].toString())),
-                              DataCell(Text(saleItem['category'] ?? 'N/A')),
-                              DataCell(Text('₱${(saleItem['totalPrice'] ?? 0.0).toStringAsFixed(2)}')),
-                            ]);
+                          rows: allSalesItems.expand<DataRow>((sale) {
+                            bool isBulkOrder = sale['isBulk'];
+                            bool isExpanded = expandedBulkOrders.contains(sale['orNumber']);
+                            List<DataRow> rows = [];
+
+                            // Main row for each transaction
+                            rows.add(
+                              DataRow(
+                                key: ValueKey(sale['orNumber']),
+                                cells: [
+                                  DataCell(
+                                    Row(
+                                      children: [
+                                        isBulkOrder
+                                            ? IconButton(
+                                          icon: Icon(isExpanded ? Icons.expand_less : Icons.expand_more),
+                                          onPressed: () {
+                                            setState(() {
+                                              if (isExpanded) {
+                                                expandedBulkOrders.remove(sale['orNumber']);
+                                              } else {
+                                                expandedBulkOrders.add(sale['orNumber']);
+                                              }
+                                            });
+                                          },
+                                        )
+                                            : SizedBox(width: 24),
+                                        Text(sale['orNumber'] ?? 'N/A'),
+                                      ],
+                                    ),
+                                  ),
+                                  DataCell(Text(sale['userName'] ?? 'N/A')),
+                                  DataCell(Text(sale['studentNumber'] ?? 'N/A')),
+                                  DataCell(Text(isBulkOrder ? 'Bulk Order (${sale['items'].length} items)' : sale['items'][0]['label'] ?? 'N/A')),
+                                  DataCell(Text(isBulkOrder ? '' : sale['items'][0]['itemSize'] ?? 'N/A')),
+                                  DataCell(Text(isBulkOrder ? '' : '${sale['items'][0]['quantity']}')),
+                                  DataCell(Text(isBulkOrder ? '' : sale['items'][0]['category'] ?? 'N/A')),
+                                  DataCell(Text('₱${(sale['totalTransactionPrice'] ?? 0.0).toStringAsFixed(2)}')),
+                                  DataCell(Text(
+                                    sale['orderDate'] != null && sale['orderDate'] is Timestamp
+                                        ? DateFormat('yyyy-MM-dd HH:mm:ss').format((sale['orderDate'] as Timestamp).toDate())
+                                        : 'No Date Provided',
+                                  )),
+                                ],
+                              ),
+                            );
+
+                            // Expanded rows for bulk orders
+                            if (isExpanded) {
+                              rows.addAll((sale['items'] as List).map<DataRow>((item) {
+                                return DataRow(
+                                  key: ValueKey('${sale['orNumber']}_${item['label']}'),
+                                  cells: [
+                                    DataCell(Text('')),
+                                    DataCell(Text('')),
+                                    DataCell(Text('')),
+                                    DataCell(Text(item['label'] ?? 'N/A')),
+                                    DataCell(Text(item['itemSize'] ?? 'N/A')),
+                                    DataCell(Text('${item['quantity']}')),
+                                    DataCell(Text(item['category'] ?? 'N/A')),
+                                    DataCell(Text('₱${(item['totalPrice'] ?? 0.0).toStringAsFixed(2)}')),
+                                    DataCell(Text('')),
+                                  ],
+                                );
+                              }).toList());
+                            }
+                            return rows;
                           }).toList(),
-                        )
+                        ),
                       ),
                     ),
                   ),
