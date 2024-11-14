@@ -19,7 +19,7 @@ class _ReleasePageState extends State<ReleasePage> {
   @override
   void initState() {
     super.initState();
-    _fetchAllPendingReservations();
+    fetchAllApprovedTransactions();
   }
 
   @override
@@ -29,97 +29,48 @@ class _ReleasePageState extends State<ReleasePage> {
     super.dispose();
   }
 
-  Future<void> _fetchAllPendingReservations() async {
-    List<Map<String, dynamic>> pendingReservations = [];
+  Future<void> fetchAllApprovedTransactions() async {
+    List<Map<String, dynamic>> approvedTransactions = [];
     setState(() {
       isLoading = true;
     });
 
-    QuerySnapshot usersSnapshot = await _firestore.collection('users').get();
+    QuerySnapshot approvedReservationsSnapshot = await _firestore.collection('approved_reservation').get();
 
-    for (var userDoc in usersSnapshot.docs) {
-      String userName = userDoc['name'] ?? 'Unknown User';
-      String studentId = (userDoc.data() as Map<String, dynamic>).containsKey('studentId')
-          ? userDoc['studentId']
-          : 'Unknown ID';
+    for (var doc in approvedReservationsSnapshot.docs) {
+      Map<String, dynamic> transactionData = doc.data() as Map<String, dynamic>;
 
-      // Fetch all pending orders for the current user
-      QuerySnapshot ordersSnapshot = await _firestore
-          .collection('users')
-          .doc(userDoc.id)
-          .collection('orders')
-          .where('status', isEqualTo: 'pending')
-          .get();
+      // Add additional fields to the transaction data
+      transactionData['transactionId'] = doc.id;
+      transactionData['userName'] = transactionData['name'] ?? 'Unknown User';
+      transactionData['studentId'] = transactionData['studentId'] ?? 'Unknown ID';
+      transactionData['category'] = transactionData['mainCategory'] ?? 'Unknown Category';
+      transactionData['label'] = transactionData['label'] ?? 'No Label';
+      transactionData['itemSize'] = transactionData['itemSize'] ?? 'Unknown Size';
+      transactionData['quantity'] = transactionData['quantity'] ?? 1;
+      transactionData['pricePerPiece'] = transactionData['pricePerPiece'] ?? 0.0;
 
-      for (var orderDoc in ordersSnapshot.docs) {
-        Map<String, dynamic> reservationData = orderDoc.data() as Map<String, dynamic>;
+      // Calculate the total price for the transaction
+      double totalPrice = transactionData['quantity'] * transactionData['pricePerPiece'];
+      transactionData['totalPrice'] = totalPrice.toStringAsFixed(2);
 
-        // Add additional information to the reservation data
-        reservationData['orderId'] = orderDoc.id;
-        reservationData['userName'] = userName;
-        reservationData['studentId'] = studentId;
-        reservationData['userId'] = userDoc.id;
-        reservationData['category'] = reservationData['category'] ?? 'Unknown Category';
-        reservationData['label'] = reservationData['label'] ?? 'No Label';
-        reservationData['courseLabel'] = reservationData['courseLabel'] ?? 'Unknown Course';
-
-        // Check if there are items within the order
-        if (reservationData.containsKey('items') && reservationData['items'] is List) {
-          List<dynamic> orderItems = reservationData['items'];
-
-          double totalOrderPrice = 0.0;
-          for (var item in orderItems) {
-            int itemQuantity = item['quantity'] ?? 1;
-            double itemPrice = item['price'] ?? 0.0;
-            String itemSize = item['itemSize'] ?? 'Unknown Size';
-
-            double itemTotalPrice = itemQuantity * itemPrice;
-            item['totalPrice'] = itemTotalPrice.toStringAsFixed(2);
-            item['pricePerPiece'] = itemPrice; // Explicitly add price per piece
-            item['size'] = itemSize; // Explicitly add item size
-
-            totalOrderPrice += itemTotalPrice;
-          }
-
-          reservationData['totalOrderPrice'] = totalOrderPrice.toStringAsFixed(2);
-        } else {
-          // Handle cases where there's no 'items' list (single-item orders)
-          int quantity = reservationData['quantity'] ?? 1;
-          double pricePerPiece = reservationData['price'] ?? 0.0;
-          String itemSize = reservationData['itemSize'] ?? 'Unknown Size'; // Get size for single item
-
-          double totalPrice = quantity * pricePerPiece;
-
-          reservationData['totalPrice'] = totalPrice.toStringAsFixed(2);
-          reservationData['pricePerPiece'] = pricePerPiece; // Ensure price per piece is added
-          reservationData['size'] = itemSize; // Explicitly set item size for single item
-
-          reservationData['quantity'] = quantity;
-
-          reservationData['label'] = reservationData['label'];
-          reservationData['courseLabel'] = reservationData['courseLabel'];
-          reservationData['category'] = reservationData['category'];
-        }
-
-        // Add the processed reservation to the pending reservations list
-        pendingReservations.add(reservationData);
-      }
+      approvedTransactions.add(transactionData);
     }
 
-    // Sort the reservations by order date in descending order
-    pendingReservations.sort((a, b) {
-      Timestamp aTimestamp = a['orderDate'] != null && a['orderDate'] is Timestamp
-          ? a['orderDate']
+    // Sort transactions by approval date in descending order
+    approvedTransactions.sort((a, b) {
+      Timestamp aTimestamp = a['approvalDate'] != null && a['approvalDate'] is Timestamp
+          ? a['approvalDate']
           : Timestamp.now();
-      Timestamp bTimestamp = b['orderDate'] != null && b['orderDate'] is Timestamp
-          ? b['orderDate']
+      Timestamp bTimestamp = b['approvalDate'] != null && b['approvalDate'] is Timestamp
+          ? b['approvalDate']
           : Timestamp.now();
       return bTimestamp.compareTo(aTimestamp);
     });
 
-    // Update the state with the processed reservations
+    // Update the state with the processed transactions
     setState(() {
-      allPendingReservations = pendingReservations;
+      allPendingReservations = approvedTransactions; // Update the variable name accordingly
       isLoading = false;
     });
   }
@@ -198,7 +149,7 @@ class _ReleasePageState extends State<ReleasePage> {
 
       // Send notification with student name and student ID
       await _sendNotificationToUser(userId, userName, studentName, studentId, reservation);
-      await _fetchAllPendingReservations();
+      await fetchAllApprovedTransactions();
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -392,7 +343,7 @@ class _ReleasePageState extends State<ReleasePage> {
           IconButton(
             icon: Icon(Icons.refresh),
             onPressed: () {
-              _fetchAllPendingReservations();
+              fetchAllApprovedTransactions();
             },
           ),
         ],
