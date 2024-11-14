@@ -154,6 +154,7 @@ class _ReservationListPageState extends State<ReservationListPage> {
           throw Exception('Invalid item data: missing label, category, subCategory, or quantity.');
         }
 
+        // Add the approved reservation with a reference to the user
         await _firestore.collection('approved_reservation').add({
           'reservationDate': reservationDate,
           'approvalDate': FieldValue.serverTimestamp(),
@@ -164,10 +165,16 @@ class _ReservationListPageState extends State<ReservationListPage> {
           'pricePerPiece': price,
           'mainCategory': mainCategory,
           'subCategory': subCategory,
+          'userRef': _firestore.collection('users').doc(userId), // Reference to the user's document
+          'userId': userId, // Store user ID for quick access
+          'studentId': studentId, // Store student ID
         });
       }
 
+      // Update order status to 'approved'
       await _firestore.collection('users').doc(userId).collection('orders').doc(orderId).update({'status': 'approved'});
+
+      // Send notification with student name and student ID
       await _sendNotificationToUser(userId, userName, studentName, studentId, reservation);
       await _fetchAllPendingReservations();
 
