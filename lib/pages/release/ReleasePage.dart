@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:unistock/helpers/API.dart';
 
 class ReleasePage extends StatefulWidget {
   @override
@@ -146,7 +147,11 @@ class _ReleasePageState extends State<ReleasePage> {
       Timestamp reservationDate = reservation['reservationDate'] ?? Timestamp.now();
       List items = reservation['items'] ?? [];
 
-      // If it's a bulk order, iterate over items; otherwise, use top-level reservation data
+      // Prepare item data for bulk order
+      List<Map<String, dynamic>> itemDataList = [];
+      int totalQuantity = 0;
+      double totalTransactionPrice = 0.0;
+
       if (items.isNotEmpty) {
         for (var item in items) {
           String label = (item['label'] ?? 'No Label').trim();
@@ -162,25 +167,26 @@ class _ReleasePageState extends State<ReleasePage> {
             throw Exception('Invalid item data: missing label, category, subCategory, or quantity.');
           }
 
-          // Deduct item quantity and add to approved collection
+          // Deduct item quantity
           await _deductItemQuantity(mainCategory, subCategory, label, itemSize, quantity);
 
-          await _firestore.collection('approved_items').add({
-            'reservationDate': reservationDate,
-            'approvalDate': FieldValue.serverTimestamp(),
+          // Add item data to list
+          itemDataList.add({
             'label': label,
             'itemSize': itemSize,
             'quantity': quantity,
-            'name': userName,
             'pricePerPiece': pricePerPiece,
             'totalPrice': totalPrice,
             'mainCategory': mainCategory,
             'subCategory': subCategory,
-            'orNumber': orNumber,
           });
+
+          // Update totals
+          totalQuantity += quantity;
+          totalTransactionPrice += totalPrice;
         }
       } else {
-        // For single item reservation (not in a list)
+        // Single item logic
         String label = (reservation['label'] ?? 'No Label').trim();
         String itemSize = (reservation['itemSize'] ?? 'Unknown Size').trim();
         String mainCategory = (reservation['mainCategory'] ?? '').trim();
@@ -195,35 +201,42 @@ class _ReleasePageState extends State<ReleasePage> {
 
         await _deductItemQuantity(mainCategory, subCategory, label, itemSize, quantity);
 
-        await _firestore.collection('approved_items').add({
-          'reservationDate': reservationDate,
-          'approvalDate': FieldValue.serverTimestamp(),
+        itemDataList.add({
           'label': label,
           'itemSize': itemSize,
           'quantity': quantity,
-          'name': userName,
           'pricePerPiece': pricePerPiece,
           'totalPrice': totalPrice,
           'mainCategory': mainCategory,
           'subCategory': subCategory,
-          'orNumber': orNumber,
         });
+
+        totalQuantity = quantity;
+        totalTransactionPrice = totalPrice;
       }
 
+      // Store bulk order as a single document in approved_items
+      await _firestore.collection('approved_items').add({
+        'reservationDate': reservationDate,
+        'approvalDate': FieldValue.serverTimestamp(),
+        'items': itemDataList,
+        'name': userName,
+        'totalQuantity': totalQuantity,
+        'totalTransactionPrice': totalTransactionPrice,
+        'orNumber': orNumber,
+      });
+
+      // Store transaction summary in admin_transactions
       await _firestore.collection('admin_transactions').add({
         'cartItemRef': reservation['transactionId'],
-        'category': items.isNotEmpty ? items[0]['mainCategory'] : reservation['mainCategory'],
-        'courseLabel': items.isNotEmpty ? items[0]['subCategory'] : reservation['subCategory'],
-        'label': items.isNotEmpty ? items[0]['label'] : reservation['label'],
-        'itemSize': items.isNotEmpty ? items[0]['itemSize'] : reservation['itemSize'],
-        'quantity': items.isNotEmpty ? items.fold<int>(0, (sum, item) => sum + (item['quantity'] ?? 0) as int) : reservation['quantity'] as int,
-        'studentNumber': studentId,
-        'timestamp': FieldValue.serverTimestamp(),
         'userId': userId,
         'userName': userName,
-        'pricePerPiece': items.isNotEmpty ? items[0]['pricePerPiece'] : reservation['pricePerPiece'],
-        'totalPrice': items.isNotEmpty ? items.fold(0.0, (sum, item) => sum + (item['quantity'] ?? 0) * (double.tryParse(item['pricePerPiece']?.toString() ?? '0') ?? 0.0)) : reservation['totalPrice'],
+        'studentNumber': studentId,
+        'timestamp': FieldValue.serverTimestamp(),
         'orNumber': orNumber,
+        'totalQuantity': totalQuantity,
+        'totalTransactionPrice': totalTransactionPrice,
+        'items': itemDataList, // Save the items here as well for reference
       });
 
       await _sendNotificationToUser(userId, userName, studentName, studentId, reservation);
@@ -367,12 +380,14 @@ class _ReleasePageState extends State<ReleasePage> {
     try {
       List<dynamic> orderItems = reservation['items'] ?? [];
       List<Map<String, dynamic>> orderSummary = [];
+      double totalTransactionPrice = 0.0;
 
       if (orderItems.isNotEmpty) {
         for (var item in orderItems) {
           int quantity = item['quantity'] ?? 1;
-          double pricePerPiece = item['pricePerPiece'] ?? 0.0; // Updated to match Firestore field
+          double pricePerPiece = item['pricePerPiece'] ?? 0.0;
           double totalPrice = pricePerPiece * quantity;
+          totalTransactionPrice += totalPrice;
 
           orderSummary.add({
             'label': item['label'],
@@ -386,6 +401,7 @@ class _ReleasePageState extends State<ReleasePage> {
         int quantity = reservation['quantity'] ?? 1;
         double pricePerPiece = reservation['pricePerPiece'] ?? 0.0;
         double totalPrice = pricePerPiece * quantity;
+        totalTransactionPrice = totalPrice;
 
         orderSummary.add({
           'label': reservation['label'],
@@ -396,6 +412,7 @@ class _ReleasePageState extends State<ReleasePage> {
         });
       }
 
+      // Concise in-app notification message
       String notificationMessage;
       if (orderSummary.length > 1) {
         notificationMessage = 'Dear $studentName (ID: $studentId), your bulk transaction (${orderSummary.length} items) has been approved.';
@@ -403,6 +420,7 @@ class _ReleasePageState extends State<ReleasePage> {
         notificationMessage = 'Dear $studentName (ID: $studentId), your transaction for ${orderSummary[0]['label']} (${orderSummary[0]['itemSize']}) has been approved.';
       }
 
+      // Save concise in-app notification
       CollectionReference notificationsRef = FirebaseFirestore.instance
           .collection('users')
           .doc(userId)
@@ -417,6 +435,37 @@ class _ReleasePageState extends State<ReleasePage> {
         'timestamp': FieldValue.serverTimestamp(),
         'status': 'unread',
       });
+
+      // Full SMS message with itemized details
+      String itemsDetails = orderSummary.map((item) {
+        return "\n- ${item['label']} (Size: ${item['itemSize']}): Qty ${item['quantity']}, "
+            "Price: ₱${item['pricePerPiece'].toStringAsFixed(2)}, Total: ₱${item['totalPrice'].toStringAsFixed(2)}";
+      }).join("\n");
+
+      String smsMessage;
+      if (orderSummary.length > 1) {
+        smsMessage = 'Dear $studentName (ID: $studentId), your bulk transaction (${orderSummary.length} items) has been approved.\n'
+            'Details:$itemsDetails\n'
+            'Total Transaction Price: ₱${totalTransactionPrice.toStringAsFixed(2)}';
+      } else {
+        smsMessage = 'Dear $studentName (ID: $studentId), your transaction for ${orderSummary[0]['label']} '
+            '(Size: ${orderSummary[0]['itemSize']}) has been approved.\n'
+            'Quantity: ${orderSummary[0]['quantity']}, Price per Piece: ₱${orderSummary[0]['pricePerPiece'].toStringAsFixed(2)}, '
+            'Total Price: ₱${orderSummary[0]['totalPrice'].toStringAsFixed(2)}\n'
+            'Total Transaction Price: ₱${totalTransactionPrice.toStringAsFixed(2)}';
+      }
+
+      // Fetch contact number from user document for SMS
+      DocumentSnapshot userDoc = await _firestore.collection('users').doc(userId).get();
+      String contactNumber = userDoc['contactNumber'] ?? '';
+
+      if (contactNumber.isNotEmpty) {
+        SmsService smsService = SmsService();
+        await smsService.sendSms(number: contactNumber, message: smsMessage);
+        print("SMS sent to $contactNumber with message: $smsMessage");
+      } else {
+        print("No contact number provided in the user document, SMS not sent.");
+      }
 
     } catch (e) {
       print('Error sending notification: $e');

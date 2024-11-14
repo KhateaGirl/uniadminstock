@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 class SmsService {
-  final String _apiUrl = 'https://api.semaphore.co/api/v4/messages';
+  final String _apiUrl = 'http://localhost:3000/send-sms';
   final String _apikey = dotenv.env['APIKEY'] ?? '';
   final String _senderName = dotenv.env['SENDERNAME'] ?? 'Semaphore';
 
