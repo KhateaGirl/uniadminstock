@@ -44,19 +44,35 @@ class _ReleasePageState extends State<ReleasePage> {
         transactionData['userName'] = transactionData['name'] ?? 'Unknown User';
         transactionData['studentId'] = transactionData['studentId'] ?? 'Unknown ID';
 
+        // Check if 'items' exists and is a List, then process each item
         if (transactionData.containsKey('items') && transactionData['items'] is List) {
           double totalOrderPrice = 0.0;
+
           for (var item in transactionData['items']) {
-            int quantity = item['quantity'] ?? 1;
-            double pricePerPiece = item['pricePerPiece'] ?? 0.0;
+            // Parsing quantity and pricePerPiece as int/double as needed
+            int quantity = int.tryParse(item['quantity'].toString()) ?? 1;
+            double pricePerPiece = double.tryParse(item['pricePerPiece'].toString()) ?? 0.0;
+
+            // Calculate total price for the item
             item['totalPrice'] = (quantity * pricePerPiece).toStringAsFixed(2);
             totalOrderPrice += quantity * pricePerPiece;
+
+            // Update field names to match the UI expectations
+            item['size'] = item['itemSize'] ?? 'Unknown Size';
+            item['label'] = item['label'] ?? 'No Label';
           }
+
+          // Assign the computed total order price for bulk transactions
           transactionData['totalOrderPrice'] = totalOrderPrice.toStringAsFixed(2);
         } else {
-          int quantity = transactionData['quantity'] ?? 1;
-          double pricePerPiece = transactionData['pricePerPiece'] ?? 0.0;
+          // For single item transactions, compute total price directly
+          int quantity = int.tryParse(transactionData['quantity'].toString()) ?? 1;
+          double pricePerPiece = double.tryParse(transactionData['pricePerPiece'].toString()) ?? 0.0;
           transactionData['totalPrice'] = (quantity * pricePerPiece).toStringAsFixed(2);
+
+          // Set default values if fields are missing
+          transactionData['size'] = transactionData['itemSize'] ?? 'Unknown Size';
+          transactionData['label'] = transactionData['label'] ?? 'No Label';
         }
 
         approvedTransactions.add(transactionData);
@@ -379,6 +395,7 @@ class _ReleasePageState extends State<ReleasePage> {
   }
 
   @override
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
@@ -387,9 +404,7 @@ class _ReleasePageState extends State<ReleasePage> {
         actions: [
           IconButton(
             icon: Icon(Icons.refresh),
-            onPressed: () {
-              fetchAllApprovedTransactions();
-            },
+            onPressed: fetchAllApprovedTransactions,
           ),
         ],
       ),
@@ -426,54 +441,154 @@ class _ReleasePageState extends State<ReleasePage> {
                     DataColumn(label: Text('Order Date')),
                     DataColumn(label: Text('Action')),
                   ],
-                  rows: allPendingReservations.map<DataRow>((reservation) {
-                    String name = reservation['userName'] ?? 'Unknown User';
-                    String studentId = reservation['studentId'] ?? 'Unknown ID';
-                    String label = reservation['label'] ?? 'No Label';
-                    String size = reservation['itemSize'] ?? 'No Size';
-                    int quantity = reservation['quantity'] ?? 1;
-                    double pricePerPiece = reservation['pricePerPiece'] ?? 0.0;
-                    double totalPrice = double.parse(reservation['totalPrice'] ?? '0.0');
-                    String orderDate = reservation['reservationDate'] != null &&
-                        reservation['reservationDate'] is Timestamp
-                        ? DateFormat('yyyy-MM-dd HH:mm:ss')
-                        .format((reservation['reservationDate'] as Timestamp).toDate())
-                        : 'No Date Provided';
+                  rows: allPendingReservations.expand<DataRow>((reservation) {
+                    final List items = reservation['items'] ?? [];
+                    bool isBulkOrder = items.length > 1;
+                    bool isExpanded = expandedBulkOrders.contains(reservation['transactionId']);
 
-                    // Unique key by combining transaction ID with a unique identifier
-                    return DataRow(
-                      key: ValueKey('${reservation['transactionId']}_${reservation.hashCode}'),
-                      cells: [
-                        DataCell(Text(name)),
-                        DataCell(Text(studentId)),
-                        DataCell(Text(label)),
-                        DataCell(Text(size)),
-                        DataCell(Text('$quantity')),
-                        DataCell(Text('₱${pricePerPiece.toStringAsFixed(2)}')),
-                        DataCell(Text('₱${totalPrice.toStringAsFixed(2)}')),
-                        DataCell(Text(orderDate)),
-                        DataCell(
-                          Row(
-                            children: [
-                              ElevatedButton(
-                                onPressed: () {
-                                  _showORNumberDialog(reservation);
-                                },
-                                child: Text('Approve'),
+                    if (!isBulkOrder) {
+                      // Single item order
+                      final item = items[0];
+                      int quantity = item['quantity'] ?? 1;
+                      double pricePerPiece = double.tryParse(item['pricePerPiece'].toString()) ?? 0.0;
+                      double totalPrice = quantity * pricePerPiece;
+                      String size = item['itemSize'] ?? 'No Size';
+                      String label = item['label'] ?? 'No Label';
+
+                      return [
+                        DataRow(
+                          key: ValueKey(reservation['transactionId']),
+                          cells: [
+                            DataCell(Text(reservation['userName'] ?? 'Unknown User')),
+                            DataCell(Text(reservation['studentId'] ?? 'Unknown ID')),
+                            DataCell(Text(label)),
+                            DataCell(Text(size)),
+                            DataCell(Text('$quantity')),
+                            DataCell(Text('₱${pricePerPiece.toStringAsFixed(2)}')),
+                            DataCell(Text('₱${totalPrice.toStringAsFixed(2)}')),
+                            DataCell(Text(
+                              reservation['reservationDate'] != null && reservation['reservationDate'] is Timestamp
+                                  ? DateFormat('yyyy-MM-dd HH:mm:ss').format(
+                                (reservation['reservationDate'] as Timestamp).toDate(),
+                              )
+                                  : 'No Date Provided',
+                            )),
+                            DataCell(
+                              Row(
+                                children: [
+                                  ElevatedButton(
+                                    onPressed: () {
+                                      _showORNumberDialog(reservation);
+                                    },
+                                    child: Text('Approve'),
+                                  ),
+                                  SizedBox(width: 8),
+                                  ElevatedButton(
+                                    style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+                                    onPressed: () {
+                                      _rejectReservation(reservation);
+                                    },
+                                    child: Text('Reject'),
+                                  ),
+                                ],
                               ),
-                              SizedBox(width: 8),
-                              ElevatedButton(
-                                style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-                                onPressed: () {
-                                  _rejectReservation(reservation);
-                                },
-                                child: Text('Reject'),
-                              ),
-                            ],
-                          ),
+                            ),
+                          ],
                         ),
-                      ],
-                    );
+                      ];
+                    } else {
+                      // Bulk order with dropdown
+                      double totalQuantity = items.fold<double>(0, (sum, item) => sum + (item['quantity'] ?? 1));
+                      double totalOrderPrice = items.fold<double>(
+                          0, (sum, item) => sum + ((item['quantity'] ?? 1) * (double.tryParse(item['pricePerPiece']?.toString() ?? '0') ?? 0.0)));
+
+                      List<DataRow> rows = [
+                        DataRow(
+                          key: ValueKey(reservation['transactionId']),
+                          cells: [
+                            DataCell(Text(reservation['userName'] ?? 'Unknown User')),
+                            DataCell(Text(reservation['studentId'] ?? 'Unknown ID')),
+                            DataCell(Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text('Bulk Order (${items.length} items)'),
+                                IconButton(
+                                  icon: Icon(isExpanded ? Icons.expand_less : Icons.expand_more),
+                                  onPressed: () {
+                                    setState(() {
+                                      if (isExpanded) {
+                                        expandedBulkOrders.remove(reservation['transactionId']);
+                                      } else {
+                                        expandedBulkOrders.add(reservation['transactionId']);
+                                      }
+                                    });
+                                  },
+                                ),
+                              ],
+                            )),
+                            DataCell(Text('')),
+                            DataCell(Text('$totalQuantity')),
+                            DataCell(Text('')),
+                            DataCell(Text('₱${totalOrderPrice.toStringAsFixed(2)}')),
+                            DataCell(Text(
+                              reservation['reservationDate'] != null && reservation['reservationDate'] is Timestamp
+                                  ? DateFormat('yyyy-MM-dd HH:mm:ss').format(
+                                (reservation['reservationDate'] as Timestamp).toDate(),
+                              )
+                                  : 'No Date Provided',
+                            )),
+                            DataCell(
+                              Row(
+                                children: [
+                                  ElevatedButton(
+                                    onPressed: () {
+                                      _showORNumberDialog(reservation);
+                                    },
+                                    child: Text('Approve'),
+                                  ),
+                                  SizedBox(width: 8),
+                                  ElevatedButton(
+                                    style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+                                    onPressed: () {
+                                      _rejectReservation(reservation);
+                                    },
+                                    child: Text('Reject'),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ];
+
+                      // Expanded rows for each item in bulk order
+                      if (isExpanded) {
+                        rows.addAll(items.map<DataRow>((item) {
+                          int quantity = item['quantity'] ?? 1;
+                          double pricePerPiece = double.tryParse(item['pricePerPiece'].toString()) ?? 0.0;
+                          double itemTotalPrice = quantity * pricePerPiece;
+                          String label = item['label'] ?? 'No Label';
+                          String size = item['itemSize'] ?? 'No Size';
+
+                          return DataRow(
+                            key: ValueKey('${reservation['transactionId']}_${label}'),
+                            cells: [
+                              DataCell(Text('')),
+                              DataCell(Text('')),
+                              DataCell(Text(label)),
+                              DataCell(Text(size)),
+                              DataCell(Text('$quantity')),
+                              DataCell(Text('₱${pricePerPiece.toStringAsFixed(2)}')),
+                              DataCell(Text('₱${itemTotalPrice.toStringAsFixed(2)}')),
+                              DataCell(Text('')),
+                              DataCell(Text('')),
+                            ],
+                          );
+                        }).toList());
+                      }
+
+                      return rows;
+                    }
                   }).toList(),
                 ),
               ),
