@@ -1,7 +1,7 @@
 const OverviewPageRoute = "Overview";
 const InventoryPageRoute = "Inventory/Stocks";
 const ReservationListPageRoute = "Reservation List";
-const SalesHistoryPageRoute = "Sales History";
+const SalesHistoryPageRoute = "Sales Report";
 const SalesStatisticsPageRoute = "Sales Statistics";
 const WalkinPageRoute = "Walk-In";
 const AboutUsPageRoute = "About Us";
