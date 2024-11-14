@@ -38,7 +38,6 @@ class _PreOrderPageState extends State<PreOrderPage> {
       List<String> itemDetails = [];
       double overallTotalPrice = 0.0;
 
-      // Build item details and calculate the total price
       for (var item in cartItems) {
         String label = item['label'] ?? 'Item';
         int quantity = item['quantity'] ?? 1;
@@ -46,19 +45,15 @@ class _PreOrderPageState extends State<PreOrderPage> {
             ? item['pricePerPiece']
             : (item['pricePerPiece'] != null ? double.parse(item['pricePerPiece'].toString()) : 0.0);
 
-        // Calculate total price for the item and add to overall total
         double itemTotalPrice = pricePerPiece * quantity;
         overallTotalPrice += itemTotalPrice;
 
-        // Format each item's details
         itemDetails.add("$label (x$quantity) - ₱${itemTotalPrice.toStringAsFixed(2)}");
       }
 
-      // Construct the message with totalOrderPrice or overallTotalPrice if calculated manually
       String itemNames = itemDetails.join(", ");
       String message = "Hello $studentName (Student ID: $studentNumber), your pre-order for $itemNames has been approved. Total Price: ₱${overallTotalPrice.toStringAsFixed(2)}.";
 
-      // Send SMS
       final response = await http.post(
         Uri.parse('http://localhost:3000/send-sms'),
         headers: {
@@ -73,34 +68,25 @@ class _PreOrderPageState extends State<PreOrderPage> {
       );
 
       if (response.statusCode == 200) {
-        print("SMS sent successfully to $contactNumber");
       } else {
-        print("Failed to send SMS: ${response.body}");
       }
     } catch (e) {
-      print("Error sending SMS: $e");
     }
   }
 
   Future<void> _sendNotificationToUser(String userId, String userName, Map<String, dynamic> preOrder) async {
     try {
       List<String> itemDetails = [];
-      double totalPrice = 0.0; // Initialize total price to accumulate item totals
+      double totalPrice = 0.0;
 
-      // Debugging: Print the entire preOrder data
-      print("Pre-order Data: $preOrder");
 
-      // Check and accumulate total price from individual items in preOrder['items']
       if (preOrder.containsKey('items') && preOrder['items'] is List) {
         for (var item in preOrder['items']) {
-          // Debugging: Print each item's raw data
-          print("Item Data: $item");
 
           String label = item['label'] ?? 'No Label';
           int quantity = item['quantity'] ?? 1;
           double itemTotalPrice = 0.0;
 
-          // Retrieve and parse each item's totalPrice
           if (item['totalPrice'] != null) {
             if (item['totalPrice'] is int) {
               itemTotalPrice = (item['totalPrice'] as int).toDouble();
@@ -110,27 +96,15 @@ class _PreOrderPageState extends State<PreOrderPage> {
               itemTotalPrice = double.tryParse(item['totalPrice'].toString()) ?? 0.0;
             }
           }
-
-          // Add each item's totalPrice to the overall totalPrice
           totalPrice += itemTotalPrice;
-
-          // Debugging: Print item details after parsing
-          print("Parsed Item - Label: $label, Quantity: $quantity, Item Total Price: $itemTotalPrice");
-
-          // Append each item details to the list
           itemDetails.add("$label (x$quantity) - ₱${itemTotalPrice.toStringAsFixed(2)}");
         }
       } else {
-        print("No items found in the preOrder data.");
       }
-
-      // Debugging: Log totalPrice after calculating from all items
-      print("Total Order Price after accumulation: $totalPrice");
 
       String itemNames = itemDetails.join(", ");
       String message = "Hello $userName, your pre-order for $itemNames has been approved. Total Price: ₱${totalPrice.toStringAsFixed(2)}.";
 
-      // Send notification to Firestore
       await _firestore.collection('users').doc(userId).collection('notifications').add({
         'title': 'Pre-order approved',
         'message': message,
@@ -138,9 +112,7 @@ class _PreOrderPageState extends State<PreOrderPage> {
         'status': 'unread',
       });
 
-      print("Notification sent to user: $userName");
     } catch (e) {
-      print("Failed to send notification: $e");
     }
   }
 
@@ -151,26 +123,19 @@ class _PreOrderPageState extends State<PreOrderPage> {
       String userName = preOrder['userName'] ?? 'Unknown User';
       String studentId = preOrder['studentId'] ?? 'Unknown ID';
 
-      print('Approving pre-order for userId: $userId, orderId: $orderId');
-      print('Pre-order details: $preOrder');
-
       if (userId.isEmpty || orderId.isEmpty) {
         throw Exception('Invalid pre-order data: userId or orderId is missing.');
       }
 
-      // Fetch the user's profile to get the contact number and name
       DocumentSnapshot userDoc = await _firestore.collection('users').doc(userId).get();
       if (!userDoc.exists || userDoc['contactNumber'] == null) {
         throw Exception('User profile not found or contact number is missing.');
       }
 
-      // Get the contact number and other user details from the user's document
       String contactNumber = userDoc['contactNumber'];
-      String studentName = userDoc['name'] ?? 'Unknown Name';  // Assuming `name` field exists
+      String studentName = userDoc['name'] ?? 'Unknown Name';
       String studentNumber = userDoc['studentId'] ?? 'Unknown ID';
-      print('Fetched contact number: $contactNumber');
 
-      // Fetch the order document
       DocumentSnapshot orderDoc = await _firestore
           .collection('users')
           .doc(userId)
@@ -185,7 +150,7 @@ class _PreOrderPageState extends State<PreOrderPage> {
       Map<String, dynamic> orderData = orderDoc.data() as Map<String, dynamic>;
       orderData['status'] = 'approved';
 
-      double totalOrderPrice = orderData['totalOrderPrice'] ?? 0.0;  // Using totalOrderPrice from the document if available
+      double totalOrderPrice = orderData['totalOrderPrice'] ?? 0.0;
       List<dynamic> orderItems = preOrder['items'] ?? [];
 
       if (orderItems.isEmpty) {
@@ -204,22 +169,18 @@ class _PreOrderPageState extends State<PreOrderPage> {
         cartItems.add({
           'label': label,
           'quantity': quantity,
-          'pricePerPiece': item['pricePerPiece'] ?? 0.0,  // Assuming pricePerPiece is part of each item
+          'pricePerPiece': item['pricePerPiece'] ?? 0.0,
         });
       }
 
-      // Save to approved_preorders collection and delete from preorders collection
       await _firestore.collection('approved_preorders').doc(orderId).set({
         'userId': userId,
         ...orderData,
       });
 
       await _firestore.collection('users').doc(userId).collection('preorders').doc(orderId).delete();
-
-      // Send SMS and Notification
       await _sendSMSToUser(contactNumber, studentName, studentNumber, totalOrderPrice, cartItems);
       await _sendNotificationToUser(userId, userName, preOrder);
-
       await _fetchAllPendingPreOrders();
 
       ScaffoldMessenger.of(context).showSnackBar(
@@ -230,7 +191,6 @@ class _PreOrderPageState extends State<PreOrderPage> {
       );
 
     } catch (e) {
-      print('Error approving pre-order: $e');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Failed to approve pre-order: $e'),
@@ -292,6 +252,36 @@ class _PreOrderPageState extends State<PreOrderPage> {
       isLoading = false;
     });
   }
+
+  Future<void> _rejectPreOrder(Map<String, dynamic> preOrder) async {
+    try {
+      String userId = preOrder['userId'] ?? '';
+      String orderId = preOrder['orderId'] ?? '';
+
+      if (userId.isEmpty || orderId.isEmpty) {
+        throw Exception('Invalid pre-order data: userId or orderId is missing.');
+      }
+
+      await _firestore.collection('users').doc(userId).collection('preorders').doc(orderId).delete();
+
+      await _fetchAllPendingPreOrders();
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Pre-order for ${preOrder['label']} rejected successfully!'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to reject pre-order: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
 
   @override
   Widget build(BuildContext context) {
@@ -413,12 +403,24 @@ class _PreOrderPageState extends State<PreOrderPage> {
                       DataCell(Text(order['quantity'].toString())),
                       DataCell(Text(order['preOrderDate'])),
                       DataCell(
-                        TextButton(
-                          onPressed: () => _approvePreOrder(order),
-                          child: Text("Approve", style: TextStyle(fontSize: 12)),
-                          style: TextButton.styleFrom(
-                            padding: EdgeInsets.symmetric(horizontal: 16.0),
-                          ),
+                        Row(
+                          children: [
+                            TextButton(
+                              onPressed: () => _approvePreOrder(order),
+                              child: Text("Approve", style: TextStyle(fontSize: 12)),
+                              style: TextButton.styleFrom(
+                                padding: EdgeInsets.symmetric(horizontal: 16.0),
+                              ),
+                            ),
+                            SizedBox(width: 8),
+                            TextButton(
+                              onPressed: () => _rejectPreOrder(order),
+                              child: Text("Reject", style: TextStyle(fontSize: 12, color: Colors.red)),
+                              style: TextButton.styleFrom(
+                                padding: EdgeInsets.symmetric(horizontal: 16.0),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     ]));
