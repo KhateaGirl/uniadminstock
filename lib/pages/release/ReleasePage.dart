@@ -37,13 +37,28 @@ class _ReleasePageState extends State<ReleasePage> {
     });
 
     try {
+      // Fetch approved reservations
       QuerySnapshot approvedReservationsSnapshot = await _firestore.collection('approved_reservation').get();
-
       for (var doc in approvedReservationsSnapshot.docs) {
         Map<String, dynamic> transactionData = doc.data() as Map<String, dynamic>;
+        print("Fetched data: $transactionData"); // Debugging line
+
         transactionData['transactionId'] = doc.id;
-        transactionData['userName'] = transactionData['name'] ?? 'Unknown User';
-        transactionData['studentId'] = transactionData['studentId'] ?? 'Unknown ID';
+
+        transactionData['name'] = transactionData['studentName'] ?? transactionData['name'] ?? 'Unknown User';
+
+        transactionData['studentId'] = transactionData['studentId'] ?? transactionData['studentNumber'] ?? 'Unknown ID';
+
+        print("Processed name: ${transactionData['name']}");
+        print("Processed studentId: ${transactionData['studentId']}");
+
+        transactionData['source'] = 'approved_reservation';
+
+        if (transactionData['approvalDate'] != null && transactionData['approvalDate'] is Timestamp) {
+          transactionData['orderDateFormatted'] = DateFormat('yyyy-MM-dd HH:mm:ss').format((transactionData['approvalDate'] as Timestamp).toDate());
+        } else {
+          transactionData['orderDateFormatted'] = 'No Date';
+        }
 
         if (transactionData.containsKey('items') && transactionData['items'] is List) {
           double totalOrderPrice = 0.0;
@@ -56,7 +71,7 @@ class _ReleasePageState extends State<ReleasePage> {
             totalOrderPrice += quantity * pricePerPiece;
 
             item['size'] = item['itemSize'] ?? 'Unknown Size';
-            item['label'] = item['label'] ?? 'No Label';
+            item['label'] = item['itemLabel'] ?? 'No Label';
           }
 
           transactionData['totalOrderPrice'] = totalOrderPrice.toStringAsFixed(2);
@@ -65,12 +80,61 @@ class _ReleasePageState extends State<ReleasePage> {
           double pricePerPiece = double.tryParse(transactionData['pricePerPiece'].toString()) ?? 0.0;
           transactionData['totalPrice'] = (quantity * pricePerPiece).toStringAsFixed(2);
           transactionData['size'] = transactionData['itemSize'] ?? 'Unknown Size';
-          transactionData['label'] = transactionData['label'] ?? 'No Label';
+          transactionData['label'] = transactionData['itemLabel'] ?? 'No Label';
         }
 
         approvedTransactions.add(transactionData);
       }
 
+      // Fetch approved preorders
+      QuerySnapshot approvedPreOrdersSnapshot = await _firestore.collection('approved_preorders').get();
+      for (var doc in approvedPreOrdersSnapshot.docs) {
+        Map<String, dynamic> preOrderData = doc.data() as Map<String, dynamic>;
+
+        // Name column: Show userName if available, otherwise use name
+        preOrderData['name'] = preOrderData['userName'] ?? preOrderData['name'] ?? 'Unknown User';
+
+        // Student ID column: Show studentId if available, otherwise use studentNumber
+        preOrderData['studentId'] = preOrderData['studentId'] ?? preOrderData['studentNumber'] ?? 'Unknown ID';
+
+        print("Processed pre-order name: ${preOrderData['name']}"); // Debugging line
+        print("Processed pre-order studentId: ${preOrderData['studentId']}"); // Debugging line
+
+        preOrderData['source'] = 'approved_preorders'; // Indicate the source of this data
+
+        if (preOrderData['approvalDate'] != null && preOrderData['approvalDate'] is Timestamp) {
+          preOrderData['orderDateFormatted'] = DateFormat('yyyy-MM-dd HH:mm:ss').format((preOrderData['approvalDate'] as Timestamp).toDate());
+        } else {
+          preOrderData['orderDateFormatted'] = 'No Date';
+        }
+
+        if (preOrderData.containsKey('items') && preOrderData['items'] is List) {
+          double totalOrderPrice = 0.0;
+
+          for (var item in preOrderData['items']) {
+            int quantity = int.tryParse(item['quantity'].toString()) ?? 1;
+            double pricePerPiece = double.tryParse(item['pricePerPiece'].toString()) ?? 0.0;
+
+            item['totalPrice'] = (quantity * pricePerPiece).toStringAsFixed(2);
+            totalOrderPrice += quantity * pricePerPiece;
+
+            item['size'] = item['itemSize'] ?? 'Unknown Size';
+            item['label'] = item['itemLabel'] ?? 'No Label';
+          }
+
+          preOrderData['totalOrderPrice'] = totalOrderPrice.toStringAsFixed(2);
+        } else {
+          int quantity = int.tryParse(preOrderData['quantity'].toString()) ?? 1;
+          double pricePerPiece = double.tryParse(preOrderData['pricePerPiece'].toString()) ?? 0.0;
+          preOrderData['totalPrice'] = (quantity * pricePerPiece).toStringAsFixed(2);
+          preOrderData['size'] = preOrderData['itemSize'] ?? 'Unknown Size';
+          preOrderData['label'] = preOrderData['itemLabel'] ?? 'No Label';
+        }
+
+        approvedTransactions.add(preOrderData);
+      }
+
+      // Update state with the combined list
       setState(() {
         allPendingReservations = approvedTransactions;
         isLoading = false;
@@ -81,7 +145,7 @@ class _ReleasePageState extends State<ReleasePage> {
       });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Error fetching approved reservations: $e'),
+          content: Text('Error fetching approved transactions and preorders: $e'),
           backgroundColor: Colors.red,
         ),
       );
@@ -135,16 +199,10 @@ class _ReleasePageState extends State<ReleasePage> {
   Future<void> _approveReservation(Map<String, dynamic> reservation, String orNumber) async {
     try {
       reservation['orNumber'] = orNumber;
-      String userId = reservation['userId'] ?? '';
       String userName = reservation['userName'] ?? 'Unknown User';
       String studentId = reservation['studentId'] ?? 'Unknown ID';
       String studentName = reservation['userName'] ?? 'Unknown User';
 
-      if (userId.isEmpty) {
-        throw Exception('Invalid reservation data: userId is missing.');
-      }
-
-      Timestamp reservationDate = reservation['reservationDate'] ?? Timestamp.now();
       List items = reservation['items'] ?? [];
 
       // Prepare item data for bulk order
@@ -155,29 +213,33 @@ class _ReleasePageState extends State<ReleasePage> {
       if (items.isNotEmpty) {
         for (var item in items) {
           String label = (item['label'] ?? 'No Label').trim();
-          String itemSize = (item['itemSize'] ?? 'Unknown Size').trim();
-          String mainCategory = (item['mainCategory'] ?? '').trim();
-          String subCategory = (item['subCategory'] ?? '').trim();
+          String category = (item['category'] ?? 'Unknown Category').trim();
+          String subCategory = '';
+          if (reservation['source'] == 'approved_reservation') {
+            subCategory = (item['subCategory'] ?? 'Unknown SubCategory').trim();
+          } else if (reservation['source'] == 'approved_preorders') {
+            subCategory = (item['courseLabel'] ?? 'Unknown SubCategory').trim(); // For approved_preorders
+          }
           int quantity = item['quantity'] ?? 0;
           double pricePerPiece = double.tryParse(item['pricePerPiece']?.toString() ?? '0') ?? 0.0;
           double totalPrice = pricePerPiece * quantity;
 
           // Validate fields for each item
-          if (label.isEmpty || mainCategory.isEmpty || subCategory.isEmpty || quantity <= 0) {
+          if (label.isEmpty || category.isEmpty || subCategory.isEmpty || quantity <= 0) {
             throw Exception('Invalid item data: missing label, category, subCategory, or quantity.');
           }
 
           // Deduct item quantity
-          await _deductItemQuantity(mainCategory, subCategory, label, itemSize, quantity);
+          await _deductItemQuantity(category, subCategory, label, item['itemSize'] ?? 'Unknown Size', quantity);
 
           // Add item data to list
           itemDataList.add({
             'label': label,
-            'itemSize': itemSize,
+            'itemSize': item['itemSize'] ?? 'Unknown Size',
             'quantity': quantity,
             'pricePerPiece': pricePerPiece,
             'totalPrice': totalPrice,
-            'mainCategory': mainCategory,
+            'mainCategory': category,
             'subCategory': subCategory,
           });
 
@@ -186,28 +248,32 @@ class _ReleasePageState extends State<ReleasePage> {
           totalTransactionPrice += totalPrice;
         }
       } else {
-        // Single item logic
+        // Single item logic for both `approved_reservation` and `approved_preorders`
         String label = (reservation['label'] ?? 'No Label').trim();
-        String itemSize = (reservation['itemSize'] ?? 'Unknown Size').trim();
-        String mainCategory = (reservation['mainCategory'] ?? '').trim();
-        String subCategory = (reservation['subCategory'] ?? '').trim();
+        String category = (reservation['category'] ?? 'Unknown Category').trim();
+        String subCategory = '';
+        if (reservation['source'] == 'approved_reservation') {
+          subCategory = (reservation['subCategory'] ?? 'Unknown SubCategory').trim();
+        } else if (reservation['source'] == 'approved_preorders') {
+          subCategory = (reservation['courseLabel'] ?? 'Unknown SubCategory').trim(); // For approved_preorders
+        }
         int quantity = reservation['quantity'] ?? 0;
         double pricePerPiece = reservation['pricePerPiece'] ?? 0.0;
         double totalPrice = pricePerPiece * quantity;
 
-        if (label.isEmpty || mainCategory.isEmpty || subCategory.isEmpty || quantity <= 0) {
+        if (label.isEmpty || category.isEmpty || subCategory.isEmpty || quantity <= 0) {
           throw Exception('Invalid item data: missing label, category, subCategory, or quantity.');
         }
 
-        await _deductItemQuantity(mainCategory, subCategory, label, itemSize, quantity);
+        await _deductItemQuantity(category, subCategory, label, reservation['itemSize'] ?? 'Unknown Size', quantity);
 
         itemDataList.add({
           'label': label,
-          'itemSize': itemSize,
+          'itemSize': reservation['itemSize'] ?? 'Unknown Size',
           'quantity': quantity,
           'pricePerPiece': pricePerPiece,
           'totalPrice': totalPrice,
-          'mainCategory': mainCategory,
+          'mainCategory': category,
           'subCategory': subCategory,
         });
 
@@ -217,7 +283,7 @@ class _ReleasePageState extends State<ReleasePage> {
 
       // Store bulk order as a single document in approved_items
       await _firestore.collection('approved_items').add({
-        'reservationDate': reservationDate,
+        'reservationDate': reservation['reservationDate'] ?? Timestamp.now(),
         'approvalDate': FieldValue.serverTimestamp(),
         'items': itemDataList,
         'name': userName,
@@ -229,7 +295,6 @@ class _ReleasePageState extends State<ReleasePage> {
       // Store transaction summary in admin_transactions
       await _firestore.collection('admin_transactions').add({
         'cartItemRef': reservation['transactionId'],
-        'userId': userId,
         'userName': userName,
         'studentNumber': studentId,
         'timestamp': FieldValue.serverTimestamp(),
@@ -238,6 +303,11 @@ class _ReleasePageState extends State<ReleasePage> {
         'totalTransactionPrice': totalTransactionPrice,
         'items': itemDataList,
       });
+
+      // If the reservation is from `approved_preorders`, delete the document
+      if (reservation['source'] == 'approved_preorders') {
+        await _firestore.collection('approved_preorders').doc(reservation['transactionId']).delete();
+      }
 
       await fetchAllApprovedTransactions();
 
@@ -437,7 +507,7 @@ class _ReleasePageState extends State<ReleasePage> {
                         DataRow(
                           key: ValueKey(reservation['transactionId']),
                           cells: [
-                            DataCell(Text(reservation['userName'] ?? 'Unknown User')),
+                            DataCell(Text(reservation['name'] ?? 'Unknown User')),
                             DataCell(Text(reservation['studentId'] ?? 'Unknown ID')),
                             DataCell(Text(label)),
                             DataCell(Text(size)),
@@ -545,7 +615,6 @@ class _ReleasePageState extends State<ReleasePage> {
                           double itemTotalPrice = quantity * pricePerPiece;
                           String label = item['label'] ?? 'No Label';
                           String size = item['itemSize'] ?? 'No Size';
-
                           return DataRow(
                             key: ValueKey('${reservation['transactionId']}_${label}'),
                             cells: [

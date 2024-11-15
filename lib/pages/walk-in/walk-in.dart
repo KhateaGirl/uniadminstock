@@ -593,6 +593,7 @@ class _MainWalkInPageState extends State<WalkinPage> {
       List<Map<String, dynamic>> cartItems = [];
       double totalAmount = 0.0;
 
+      // Add item data to the cart
       for (String item in _selectedQuantities.keys) {
         int quantity = _selectedQuantities[item] ?? 0;
         String? size = _selectedSizes[item];
@@ -600,6 +601,7 @@ class _MainWalkInPageState extends State<WalkinPage> {
           String category;
           String? courseLabel;
 
+          // Determine category and courseLabel
           if (_selectedCategory == 'Uniform') {
             if (_selectedSchoolLevel == 'Senior High') {
               category = 'senior_high_items';
@@ -623,42 +625,32 @@ class _MainWalkInPageState extends State<WalkinPage> {
 
           totalAmount += total;
 
+          // Add item data to cartItems
           Map<String, dynamic> itemData = {
             'itemLabel': item,
             'itemSize': size,
+            'mainCategory': category,
+            'pricePerPiece': itemPrice,
             'quantity': quantity,
-            'category': category,
-            'courseLabel': courseLabel,
-            'total': total,
+            'subCategory': courseLabel ?? 'N/A',
+            // Do not add serverTimestamp() inside item data
           };
 
           cartItems.add(itemData);
-
-          await _deductItemQuantity(item, size, quantity);
-          CollectionReference approvedItemsRef = FirebaseFirestore.instance.collection('approved_items');
-
-          await approvedItemsRef.add({
-            'itemLabel': item,
-            'itemSize': size,
-            'name': studentName,
-            'pricePerPiece': itemPrice,
-            'quantity': quantity,
-            'total': total,
-            'reservationDate': FieldValue.serverTimestamp(),
-            'approvalDate': FieldValue.serverTimestamp(),
-          });
         }
       }
 
-      CollectionReference adminRef = FirebaseFirestore.instance.collection('admin_transactions');
-      await adminRef.add({
-        'userName': studentName,
+      // Store the order in Firestore
+      CollectionReference approvedReservationsRef = FirebaseFirestore.instance.collection('approved_reservation');
+      await approvedReservationsRef.add({
+        'approvalDate': FieldValue.serverTimestamp(),  // Timestamp at document level
+        'studentName': studentName,
         'studentNumber': studentNumber,
-        'cartItems': cartItems,
-        'category': _selectedCategory,
-        'timestamp': FieldValue.serverTimestamp(),
+        'contactNumber': contactNumber,
+        'items': cartItems,  // Store items array without timestamps
       });
 
+      // Send SMS to the user
       await _sendSMSToUser(contactNumber, studentName, studentNumber, totalAmount, cartItems);
 
       Get.snackbar('Success', 'Order submitted and SMS sent successfully!');
@@ -735,105 +727,6 @@ class _MainWalkInPageState extends State<WalkinPage> {
       setState(() {
         _loading = false;
       });
-    });
-  }
-
-  Future<void> _deductItemQuantity(String itemLabel, String size, int quantity) async {
-    try {
-      CollectionReference itemsRef;
-
-      if (_selectedCategory == 'Uniform') {
-        if (_selectedSchoolLevel == 'Senior High') {
-          itemsRef = FirebaseFirestore.instance
-              .collection('Inventory_stock')
-              .doc('senior_high_items')
-              .collection('Items');
-        } else if (_selectedSchoolLevel == 'College') {
-          itemsRef = FirebaseFirestore.instance
-              .collection('Inventory_stock')
-              .doc('college_items')
-              .collection(_selectedCourseLabel ?? '');
-        } else {
-          return;
-        }
-      } else if (_selectedCategory == 'Merch & Accessories') {
-        itemsRef = FirebaseFirestore.instance
-            .collection('Inventory_stock')
-            .doc('Merch & Accessories')
-            .collection('Items');
-      } else {
-        return;
-      }
-
-      QuerySnapshot querySnapshot = await itemsRef
-          .where('label', isEqualTo: itemLabel)
-          .limit(1)
-          .get();
-
-      if (querySnapshot.docs.isEmpty) {
-        return;
-      }
-
-      DocumentSnapshot itemDoc = querySnapshot.docs.first;
-
-      Map<String, dynamic> itemData = itemDoc.data() as Map<String, dynamic>;
-      Map<String, dynamic> sizes = itemData['sizes'] as Map<String, dynamic>;
-
-      int currentQuantity = sizes[size]['quantity'];
-
-      if (currentQuantity >= quantity) {
-        sizes[size]['quantity'] = currentQuantity - quantity;
-        await itemsRef.doc(itemDoc.id).update({'sizes': sizes});
-
-      } else {
-      }
-    } catch (e) {
-    }
-  }
-
-  Future<void> _sendNotificationToUser(String userId, String studentName, List<Map<String, dynamic>> cartItems) async {
-    String notificationMessage = 'Your order has been placed successfully.';
-
-    List<Map<String, dynamic>> sortedOrderSummary = cartItems.map((item) {
-      String itemLabel = item['itemLabel'];
-      String? itemCategory = item['category'];
-      String? courseLabel = item['courseLabel'];
-      int quantity = item['quantity'];
-      double pricePerPiece = 0.0;
-
-      if (itemCategory == 'senior_high_items') {
-        pricePerPiece = _seniorHighStockQuantities[itemLabel]?['sizes']?[item['itemSize']]?['price'] ?? 0.0;
-      } else if (itemCategory == 'college_items' && courseLabel != null) {
-        pricePerPiece = _collegeStockQuantities[courseLabel]?[itemLabel]?['sizes']?[item['itemSize']]?['price'] ?? 0.0;
-      } else if (itemCategory == 'Merch & Accessories') {
-        pricePerPiece = _merchStockQuantities[itemLabel]?['sizes']?[item['itemSize']]?['price'] ?? 0.0;
-      }
-
-      double total = pricePerPiece * quantity;
-
-      return {
-        'itemLabel': itemLabel,
-        'itemSize': item['itemSize'],
-        'quantity': quantity,
-        'pricePerPiece': pricePerPiece,
-        'total': total,
-        'courseLabel': courseLabel,
-      };
-    }).toList();
-
-    sortedOrderSummary.sort((a, b) => a['itemLabel'].compareTo(b['itemLabel']));
-
-    CollectionReference notificationsRef = FirebaseFirestore.instance
-        .collection('users')
-        .doc(userId)
-        .collection('notifications');
-
-    await notificationsRef.add({
-      'title': 'Order Placed',
-      'message': notificationMessage,
-      'orderSummary': sortedOrderSummary,
-      'timestamp': FieldValue.serverTimestamp(),
-      'status': 'unread',
     });
   }
 }

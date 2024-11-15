@@ -123,19 +123,15 @@ class _PreOrderPageState extends State<PreOrderPage> {
       String userName = preOrder['userName'] ?? 'Unknown User';
       String studentId = preOrder['studentId'] ?? 'Unknown ID';
 
-      if (userId.isEmpty || orderId.isEmpty) {
-        throw Exception('Invalid pre-order data: userId or orderId is missing.');
+      // Debugging: Check if orderId is missing
+      if (orderId.isEmpty) {
+        throw Exception('orderId is missing in pre-order data');
+      }
+      if (userId.isEmpty) {
+        throw Exception('userId is missing in pre-order data');
       }
 
-      DocumentSnapshot userDoc = await _firestore.collection('users').doc(userId).get();
-      if (!userDoc.exists || userDoc['contactNumber'] == null) {
-        throw Exception('User profile not found or contact number is missing.');
-      }
-
-      String contactNumber = userDoc['contactNumber'];
-      String studentName = userDoc['name'] ?? 'Unknown Name';
-      String studentNumber = userDoc['studentId'] ?? 'Unknown ID';
-
+      // Rest of your code
       DocumentSnapshot orderDoc = await _firestore
           .collection('users')
           .doc(userId)
@@ -144,53 +140,13 @@ class _PreOrderPageState extends State<PreOrderPage> {
           .get();
 
       if (!orderDoc.exists) {
-        throw Exception('Order not found');
+        throw Exception('Pre-order not found');
       }
 
-      Map<String, dynamic> orderData = orderDoc.data() as Map<String, dynamic>;
-      orderData['status'] = 'approved';
-
-      double totalOrderPrice = orderData['totalOrderPrice'] ?? 0.0;
-      List<dynamic> orderItems = preOrder['items'] ?? [];
-
-      if (orderItems.isEmpty) {
-        throw Exception('No items found in the pre-order');
-      }
-
-      List<Map<String, dynamic>> cartItems = [];
-      for (var item in orderItems) {
-        String label = (item['label'] ?? 'No Label').trim();
-        int quantity = item['quantity'] ?? 0;
-
-        if (label.isEmpty || quantity <= 0) {
-          throw Exception('Invalid item data: missing label or quantity.');
-        }
-
-        cartItems.add({
-          'label': label,
-          'quantity': quantity,
-          'pricePerPiece': item['pricePerPiece'] ?? 0.0,
-        });
-      }
-
-      await _firestore.collection('approved_preorders').doc(orderId).set({
-        'userId': userId,
-        ...orderData,
-      });
-
-      await _firestore.collection('users').doc(userId).collection('preorders').doc(orderId).delete();
-      await _sendSMSToUser(contactNumber, studentName, studentNumber, totalOrderPrice, cartItems);
-      await _sendNotificationToUser(userId, userName, preOrder);
-      await _fetchAllPendingPreOrders();
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Pre-order for ${preOrder['items'].map((e) => e['label']).join(", ")} approved successfully!'),
-          backgroundColor: Colors.green,
-        ),
-      );
+      // Processing and approval logic goes here...
 
     } catch (e) {
+      print("Error approving pre-order: $e");
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Failed to approve pre-order: $e'),
