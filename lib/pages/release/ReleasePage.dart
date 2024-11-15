@@ -236,10 +236,9 @@ class _ReleasePageState extends State<ReleasePage> {
         'orNumber': orNumber,
         'totalQuantity': totalQuantity,
         'totalTransactionPrice': totalTransactionPrice,
-        'items': itemDataList, // Save the items here as well for reference
+        'items': itemDataList,
       });
 
-      await _sendNotificationToUser(userId, userName, studentName, studentId, reservation);
       await fetchAllApprovedTransactions();
 
       ScaffoldMessenger.of(context).showSnackBar(
@@ -372,103 +371,6 @@ class _ReleasePageState extends State<ReleasePage> {
           backgroundColor: Colors.red,
         ),
       );
-    }
-  }
-
-  Future<void> _sendNotificationToUser(String userId, String userName, String studentName, String studentId, Map<String, dynamic> reservation) async {
-    await _firestore.collection('approved_reservation').doc(reservation['transactionId']).delete();
-    try {
-      List<dynamic> orderItems = reservation['items'] ?? [];
-      List<Map<String, dynamic>> orderSummary = [];
-      double totalTransactionPrice = 0.0;
-
-      if (orderItems.isNotEmpty) {
-        for (var item in orderItems) {
-          int quantity = item['quantity'] ?? 1;
-          double pricePerPiece = item['pricePerPiece'] ?? 0.0;
-          double totalPrice = pricePerPiece * quantity;
-          totalTransactionPrice += totalPrice;
-
-          orderSummary.add({
-            'label': item['label'],
-            'itemSize': item['itemSize'],
-            'quantity': quantity,
-            'pricePerPiece': pricePerPiece,
-            'totalPrice': totalPrice,
-          });
-        }
-      } else {
-        int quantity = reservation['quantity'] ?? 1;
-        double pricePerPiece = reservation['pricePerPiece'] ?? 0.0;
-        double totalPrice = pricePerPiece * quantity;
-        totalTransactionPrice = totalPrice;
-
-        orderSummary.add({
-          'label': reservation['label'],
-          'itemSize': reservation['itemSize'],
-          'quantity': quantity,
-          'pricePerPiece': pricePerPiece,
-          'totalPrice': totalPrice,
-        });
-      }
-
-      // Concise in-app notification message
-      String notificationMessage;
-      if (orderSummary.length > 1) {
-        notificationMessage = 'Dear $studentName (ID: $studentId), your bulk transaction (${orderSummary.length} items) has been approved.';
-      } else {
-        notificationMessage = 'Dear $studentName (ID: $studentId), your transaction for ${orderSummary[0]['label']} (${orderSummary[0]['itemSize']}) has been approved.';
-      }
-
-      // Save concise in-app notification
-      CollectionReference notificationsRef = FirebaseFirestore.instance
-          .collection('users')
-          .doc(userId)
-          .collection('notifications');
-
-      await notificationsRef.add({
-        'title': 'Transaction Approved',
-        'message': notificationMessage,
-        'orderSummary': orderSummary,
-        'studentName': studentName,
-        'studentId': studentId,
-        'timestamp': FieldValue.serverTimestamp(),
-        'status': 'unread',
-      });
-
-      // Full SMS message with itemized details
-      String itemsDetails = orderSummary.map((item) {
-        return "\n- ${item['label']} (Size: ${item['itemSize']}): Qty ${item['quantity']}, "
-            "Price: ₱${item['pricePerPiece'].toStringAsFixed(2)}, Total: ₱${item['totalPrice'].toStringAsFixed(2)}";
-      }).join("\n");
-
-      String smsMessage;
-      if (orderSummary.length > 1) {
-        smsMessage = 'Dear $studentName (ID: $studentId), your bulk transaction (${orderSummary.length} items) has been approved.\n'
-            'Details:$itemsDetails\n'
-            'Total Transaction Price: ₱${totalTransactionPrice.toStringAsFixed(2)}';
-      } else {
-        smsMessage = 'Dear $studentName (ID: $studentId), your transaction for ${orderSummary[0]['label']} '
-            '(Size: ${orderSummary[0]['itemSize']}) has been approved.\n'
-            'Quantity: ${orderSummary[0]['quantity']}, Price per Piece: ₱${orderSummary[0]['pricePerPiece'].toStringAsFixed(2)}, '
-            'Total Price: ₱${orderSummary[0]['totalPrice'].toStringAsFixed(2)}\n'
-            'Total Transaction Price: ₱${totalTransactionPrice.toStringAsFixed(2)}';
-      }
-
-      // Fetch contact number from user document for SMS
-      DocumentSnapshot userDoc = await _firestore.collection('users').doc(userId).get();
-      String contactNumber = userDoc['contactNumber'] ?? '';
-
-      if (contactNumber.isNotEmpty) {
-        SmsService smsService = SmsService();
-        await smsService.sendSms(number: contactNumber, message: smsMessage);
-        print("SMS sent to $contactNumber with message: $smsMessage");
-      } else {
-        print("No contact number provided in the user document, SMS not sent.");
-      }
-
-    } catch (e) {
-      print('Error sending notification: $e');
     }
   }
 
