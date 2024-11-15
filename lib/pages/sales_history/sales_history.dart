@@ -92,9 +92,11 @@ class _SalesHistoryPageState extends State<SalesHistoryPage> {
                       ],
                     ),
                     // Data rows with aggregation for bulk orders
-                    ...salesData.map((saleItem) {
-                      if (saleItem['items'] != null && saleItem['items'] is List) {
-                        // For bulk orders
+                    ...rowsChunk.map((saleItem) {
+                      if (saleItem['items'] != null &&
+                          saleItem['items'] is List &&
+                          (saleItem['items'] as List).length > 1) {
+                        // For bulk orders with more than one item
                         List<pw.TableRow> bulkRows = [
                           // Bulk order summary row
                           pw.TableRow(
@@ -129,18 +131,28 @@ class _SalesHistoryPageState extends State<SalesHistoryPage> {
 
                         return bulkRows;
                       } else {
-                        // For single orders
+                        // For single orders or bulk orders with only one item
                         return [
                           pw.TableRow(
                             children: [
                               pw.Text(saleItem['orNumber'] ?? 'N/A'),
                               pw.Text(saleItem['userName'] ?? 'N/A'),
                               pw.Text(saleItem['studentNumber'] ?? 'N/A'),
-                              pw.Text(saleItem['itemLabel'] ?? 'N/A'),
-                              pw.Text(saleItem['itemSize'] ?? 'N/A'),
-                              pw.Text(saleItem['quantity'].toString()),
-                              pw.Text(saleItem['category'] ?? 'N/A'),
-                              pw.Text('₱${(saleItem['totalPrice'] ?? 0.0).toStringAsFixed(2)}'),
+                              pw.Text(saleItem['items'] != null && saleItem['items'] is List && saleItem['items'].length == 1
+                                  ? saleItem['items'][0]['label'] ?? 'N/A'
+                                  : saleItem['itemLabel'] ?? 'N/A'),
+                              pw.Text(saleItem['items'] != null && saleItem['items'] is List && saleItem['items'].length == 1
+                                  ? saleItem['items'][0]['itemSize'] ?? 'N/A'
+                                  : saleItem['itemSize'] ?? 'N/A'),
+                              pw.Text(saleItem['items'] != null && saleItem['items'] is List && saleItem['items'].length == 1
+                                  ? saleItem['items'][0]['quantity'].toString()
+                                  : saleItem['quantity'].toString()),
+                              pw.Text(saleItem['items'] != null && saleItem['items'] is List && saleItem['items'].length == 1
+                                  ? saleItem['items'][0]['mainCategory'] ?? 'N/A'
+                                  : saleItem['category'] ?? 'N/A'),
+                              pw.Text(saleItem['items'] != null && saleItem['items'] is List && saleItem['items'].length == 1
+                                  ? '₱${(saleItem['items'][0]['totalPrice'] ?? 0.0).toStringAsFixed(2)}'
+                                  : '₱${(saleItem['totalPrice'] ?? 0.0).toStringAsFixed(2)}'),
                             ],
                           ),
                         ];

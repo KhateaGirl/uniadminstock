@@ -454,9 +454,6 @@ class _InventoryPageState extends State<InventoryPage> {
               Navigator.of(context).push(
                 MaterialPageRoute(
                   builder: (context) => InventorySummaryPage(
-                    seniorHighStock: _seniorHighStockQuantities,
-                    collegeStock: _collegeStockQuantities,
-                    merchStock: _merchStockQuantities,
                   ),
                 ),
               );
