@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:unistock/pages/inventory_stocks/InventorySummaryPage.dart';
+
 
 class InventoryPage extends StatefulWidget {
   @override
@@ -17,23 +19,10 @@ class _InventoryPageState extends State<InventoryPage> {
   String? _selectedCourseLabel;
   String? _selectedSize;
   final List<String> _courseLabels = [
-    'BACOMM',
-    'HRM & Culinary',
-    'IT&CPE',
-    'Tourism',
-    'BSA & BSBA'
+    'BACOMM', 'HRM & Culinary', 'IT&CPE', 'Tourism', 'BSA & BSBA'
   ];
   final List<String> _availableSizes = [
-    'Small',
-    'Medium',
-    'Large',
-    'XL',
-    '2XL',
-    '3XL',
-    '4XL',
-    '5XL',
-    '6XL',
-    '7XL'
+    'Small', 'Medium', 'Large', 'XL', '2XL', '3XL', '4XL', '5XL', '6XL', '7XL'
   ];
   final TextEditingController _priceController = TextEditingController();
   final TextEditingController _quantityController = TextEditingController();
@@ -120,17 +109,16 @@ class _InventoryPageState extends State<InventoryPage> {
         Map<String, Map<String, dynamic>> courseItems = {};
         courseSnapshot.docs.forEach((doc) {
           Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
-          String? imagePath = data['imagePath'] as String?;
-          String label = data['label'] != null ? data['label'] as String : doc
-              .id;
-
+          String label = data['label'] ?? doc.id;
           Map<String, dynamic> stockData = {};
+
+          // Check that 'sizes' exists and is a map before processing it
           if (data.containsKey('sizes') && data['sizes'] is Map) {
             Map<String, dynamic> sizes = data['sizes'] as Map<String, dynamic>;
             sizes.forEach((sizeKey, sizeValue) {
               if (sizeValue is Map && sizeValue.containsKey('quantity')) {
                 stockData[sizeKey] = {
-                  'quantity': sizeValue['quantity'],
+                  'quantity': sizeValue['quantity'] ?? 0,
                   'price': sizeValue['price'] ?? 0.0,
                 };
               }
@@ -139,8 +127,8 @@ class _InventoryPageState extends State<InventoryPage> {
 
           courseItems[doc.id] = {
             'label': label,
-            'imagePath': imagePath ?? '',
             'stock': stockData,
+            'price': data['price'] ?? 0.0,
           };
         });
 
@@ -150,7 +138,9 @@ class _InventoryPageState extends State<InventoryPage> {
       setState(() {
         _collegeStockQuantities = collegeData;
       });
-    } catch (e) {}
+    } catch (e) {
+      print("Error fetching college stock: $e");
+    }
   }
 
   Future<void> _fetchMerchStock() async {
@@ -456,6 +446,20 @@ class _InventoryPageState extends State<InventoryPage> {
             icon: Icon(Icons.refresh),
             onPressed: () {
               _fetchInventoryData();
+            },
+          ),
+          IconButton(
+            icon: Icon(Icons.list),
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (context) => InventorySummaryPage(
+                    seniorHighStock: _seniorHighStockQuantities,
+                    collegeStock: _collegeStockQuantities,
+                    merchStock: _merchStockQuantities,
+                  ),
+                ),
+              );
             },
           ),
         ],
