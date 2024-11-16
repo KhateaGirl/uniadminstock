@@ -147,11 +147,23 @@ class _ReleasePageState extends State<ReleasePage> {
               child: Text('Cancel'),
             ),
             TextButton(
-              onPressed: () {
+              onPressed: () async {
                 String orNumber = _orNumberController.text;
+
                 if (orNumber.length == 8 && int.tryParse(orNumber) != null) {
-                  Navigator.pop(context);
-                  _approveReservation(reservation, orNumber);
+                  // Check for duplicate OR Number in admin_transactions
+                  bool orNumberExists = await _checkIfORNumberExists(orNumber);
+                  if (orNumberExists) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('OR Number already exists. Please use a unique OR Number.'),
+                        backgroundColor: Colors.red,
+                      ),
+                    );
+                  } else {
+                    Navigator.pop(context);
+                    _approveReservation(reservation, orNumber);
+                  }
                 } else {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
@@ -169,8 +181,26 @@ class _ReleasePageState extends State<ReleasePage> {
     );
   }
 
+  Future<bool> _checkIfORNumberExists(String orNumber) async {
+    try {
+      // Query the admin_transactions collection for the OR Number
+      QuerySnapshot querySnapshot = await _firestore
+          .collection('admin_transactions')
+          .where('orNumber', isEqualTo: orNumber)
+          .get();
+
+      // If any document is found, the OR Number already exists
+      return querySnapshot.docs.isNotEmpty;
+    } catch (e) {
+      print('Error checking OR Number: $e');
+      return false; // Default to false in case of error
+    }
+  }
+
   Future<void> _approveReservation(Map<String, dynamic> reservation, String orNumber) async {
     try {
+      print("Approval process started for reservation ID: ${reservation['transactionId']}");
+
       reservation['orNumber'] = orNumber;
 
       // Fetch user data based on userId
@@ -191,7 +221,6 @@ class _ReleasePageState extends State<ReleasePage> {
       int totalQuantity = 0;
       double totalTransactionPrice = 0.0;
 
-      // Process multiple items
       if (items.isNotEmpty) {
         for (var item in items) {
           String label = (item['label'] ?? 'No Label').trim();
@@ -203,7 +232,6 @@ class _ReleasePageState extends State<ReleasePage> {
           double pricePerPiece = double.tryParse(item['pricePerPiece']?.toString() ?? '0') ?? 0.0;
           double totalPrice = pricePerPiece * quantity;
 
-          // Validate fields for each item
           if (label.isEmpty || category.isEmpty || subCategory.isEmpty || quantity <= 0) {
             throw Exception('Invalid item data: missing label, category, subCategory, or quantity.');
           }
@@ -222,42 +250,13 @@ class _ReleasePageState extends State<ReleasePage> {
             'subCategory': subCategory,
           });
 
-          // Update totals
           totalQuantity += quantity;
           totalTransactionPrice += totalPrice;
         }
-      } else {
-        // Handle single item logic
-        String label = (reservation['itemLabel'] ?? 'No Label').trim();
-        String category = (reservation['mainCategory'] ?? 'Unknown Category').trim();
-        category = category.toLowerCase().replaceAll('_', ' ');
-        String subCategory = (reservation['subCategory'] ?? 'Unknown SubCategory').trim();
-
-        int quantity = reservation['quantity'] ?? 0;
-        double pricePerPiece = reservation['pricePerPiece'] ?? 0.0;
-        double totalPrice = pricePerPiece * quantity;
-
-        if (label.isEmpty || category.isEmpty || subCategory.isEmpty || quantity <= 0) {
-          throw Exception('Invalid item data: missing label, category, subCategory, or quantity.');
-        }
-
-        await _deductItemQuantity(category, subCategory, label, reservation['itemSize'] ?? 'Unknown Size', quantity);
-
-        itemDataList.add({
-          'label': label,
-          'itemSize': reservation['itemSize'] ?? 'Unknown Size',
-          'quantity': quantity,
-          'pricePerPiece': pricePerPiece,
-          'totalPrice': totalPrice,
-          'mainCategory': category,
-          'subCategory': subCategory,
-        });
-
-        totalQuantity = quantity;
-        totalTransactionPrice = totalPrice;
       }
 
       // Store bulk order as a single document in approved_items
+      print("Storing approved items...");
       await _firestore.collection('approved_items').add({
         'reservationDate': reservation['reservationDate'] ?? Timestamp.now(),
         'approvalDate': FieldValue.serverTimestamp(),
@@ -270,6 +269,7 @@ class _ReleasePageState extends State<ReleasePage> {
       });
 
       // Store transaction summary in admin_transactions
+      print("Storing transaction summary...");
       await _firestore.collection('admin_transactions').add({
         'cartItemRef': reservation['transactionId'],
         'userName': userName,
@@ -281,16 +281,22 @@ class _ReleasePageState extends State<ReleasePage> {
         'items': itemDataList,
       });
 
-      // If the reservation is from `approved_preorders`, delete the document
-      if (reservation['source'] == 'approved_preorders') {
-        await _firestore.collection('approved_preorders').doc(reservation['transactionId']).delete();
+      // Delete the original document after approval
+      if (reservation.containsKey('transactionId')) {
+        print("Deleting original reservation document...");
+        await _firestore
+            .collection('approved_reservation')
+            .doc(reservation['transactionId'])
+            .delete();
+        print("Reservation document deleted successfully.");
       }
 
+      // Refresh data after approval
       await fetchAllApprovedTransactions();
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Reservation approved successfully!'),
+          content: Text('Reservation approved and document deleted successfully!'),
           backgroundColor: Colors.green,
         ),
       );
