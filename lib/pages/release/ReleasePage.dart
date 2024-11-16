@@ -44,16 +44,17 @@ class _ReleasePageState extends State<ReleasePage> {
 
     try {
       // Fetch approved reservations
-      QuerySnapshot approvedReservationsSnapshot = await _firestore.collection('approved_reservation').get();
+      QuerySnapshot approvedReservationsSnapshot =
+      await _firestore.collection('approved_reservation').get();
       for (var doc in approvedReservationsSnapshot.docs) {
         Map<String, dynamic> transactionData = doc.data() as Map<String, dynamic>;
         transactionData['transactionId'] = doc.id;
 
-        // Fetch name, studentId, and ensure item processing
         transactionData['name'] = transactionData['name'] ?? 'Unknown User';
         transactionData['studentId'] = transactionData['studentId'] ?? 'Unknown ID';
 
-        if (transactionData.containsKey('items') && transactionData['items'] is List) {
+        if (transactionData.containsKey('items') &&
+            transactionData['items'] is List) {
           for (var item in transactionData['items']) {
             item['label'] = item['label'] ?? 'No Label';
             item['mainCategory'] = item['mainCategory'] ?? 'Unknown Category';
@@ -65,6 +66,46 @@ class _ReleasePageState extends State<ReleasePage> {
         }
 
         approvedTransactions.add(transactionData);
+      }
+
+      // Fetch approved preorders
+      QuerySnapshot approvedPreordersSnapshot =
+      await _firestore.collection('approved_preorders').get();
+      for (var doc in approvedPreordersSnapshot.docs) {
+        Map<String, dynamic> preorderData = doc.data() as Map<String, dynamic>;
+        preorderData['transactionId'] = doc.id;
+
+        // Fetch user data using userId
+        if (preorderData.containsKey('userId')) {
+          String userId = preorderData['userId'];
+          DocumentSnapshot userDoc =
+          await _firestore.collection('users').doc(userId).get();
+          if (userDoc.exists) {
+            preorderData['name'] = userDoc['name'] ?? 'Unknown User';
+            preorderData['studentId'] =
+                userDoc['studentId'] ?? 'Unknown ID';
+          } else {
+            preorderData['name'] = 'Unknown User';
+            preorderData['studentId'] = 'Unknown ID';
+          }
+        } else {
+          preorderData['name'] = 'Unknown User';
+          preorderData['studentId'] = 'Unknown ID';
+        }
+
+        if (preorderData.containsKey('items') &&
+            preorderData['items'] is List) {
+          for (var item in preorderData['items']) {
+            item['label'] = item['label'] ?? 'No Label';
+            item['mainCategory'] = item['category'] ?? 'Unknown Category';
+            item['subCategory'] = item['courseLabel'] ?? 'N/A';
+            item['size'] = item['itemSize'] ?? 'Unknown Size';
+            item['pricePerPiece'] = item['pricePerPiece'] ?? 0.0;
+            item['quantity'] = item['quantity'] ?? 1;
+          }
+        }
+
+        approvedTransactions.add(preorderData);
       }
 
       setState(() {
@@ -83,8 +124,6 @@ class _ReleasePageState extends State<ReleasePage> {
       );
     }
   }
-
-
 
   void _showORNumberDialog(Map<String, dynamic> reservation) {
     final _orNumberController = TextEditingController();
