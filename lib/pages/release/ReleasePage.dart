@@ -172,22 +172,32 @@ class _ReleasePageState extends State<ReleasePage> {
   Future<void> _approveReservation(Map<String, dynamic> reservation, String orNumber) async {
     try {
       reservation['orNumber'] = orNumber;
+
+      // Fetch user data based on userId
       String userName = reservation['userName'] ?? 'Unknown User';
       String studentId = reservation['studentId'] ?? 'Unknown ID';
 
-      List items = reservation['items'] ?? [];
+      if (reservation.containsKey('userId')) {
+        String userId = reservation['userId'];
+        DocumentSnapshot userDoc = await _firestore.collection('users').doc(userId).get();
+        if (userDoc.exists) {
+          userName = userDoc['name'] ?? 'Unknown User';
+          studentId = userDoc['studentId'] ?? 'Unknown ID';
+        }
+      }
 
-      // Prepare item data for bulk order
+      List items = reservation['items'] ?? [];
       List<Map<String, dynamic>> itemDataList = [];
       int totalQuantity = 0;
       double totalTransactionPrice = 0.0;
 
+      // Process multiple items
       if (items.isNotEmpty) {
         for (var item in items) {
-          String label = (item['label'] ?? 'No Label').trim();  // Correct field name
+          String label = (item['label'] ?? 'No Label').trim();
           String category = (item['mainCategory'] ?? 'Unknown Category').trim();
-          category = category.toLowerCase().replaceAll('_', ' '); // Normalize category string
-          String subCategory = (item['subCategory'] ?? 'Unknown SubCategory').trim(); // Correct property name
+          category = category.toLowerCase().replaceAll('_', ' ');
+          String subCategory = (item['subCategory'] ?? 'Unknown SubCategory').trim();
 
           int quantity = item['quantity'] ?? 0;
           double pricePerPiece = double.tryParse(item['pricePerPiece']?.toString() ?? '0') ?? 0.0;
@@ -218,10 +228,10 @@ class _ReleasePageState extends State<ReleasePage> {
         }
       } else {
         // Handle single item logic
-        String label = (reservation['itemLabel'] ?? 'No Label').trim();  // Correct property name
-        String category = (reservation['mainCategory'] ?? 'Unknown Category').trim(); // Correct property name
-        category = category.toLowerCase().replaceAll('_', ' '); // Normalize category stringr
-        String subCategory = (reservation['subCategory'] ?? 'Unknown SubCategory').trim(); // Correct property name
+        String label = (reservation['itemLabel'] ?? 'No Label').trim();
+        String category = (reservation['mainCategory'] ?? 'Unknown Category').trim();
+        category = category.toLowerCase().replaceAll('_', ' ');
+        String subCategory = (reservation['subCategory'] ?? 'Unknown SubCategory').trim();
 
         int quantity = reservation['quantity'] ?? 0;
         double pricePerPiece = reservation['pricePerPiece'] ?? 0.0;
@@ -253,6 +263,7 @@ class _ReleasePageState extends State<ReleasePage> {
         'approvalDate': FieldValue.serverTimestamp(),
         'items': itemDataList,
         'name': userName,
+        'studentId': studentId,
         'totalQuantity': totalQuantity,
         'totalTransactionPrice': totalTransactionPrice,
         'orNumber': orNumber,

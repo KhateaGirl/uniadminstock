@@ -255,7 +255,7 @@ class _SalesHistoryPageState extends State<SalesHistoryPage> {
                             // Main row for each transaction
                             rows.add(
                               DataRow(
-                                key: ValueKey(sale['orNumber']),
+                                key: ValueKey('${sale['orNumber']}_main'), // Unique key for main row
                                 cells: [
                                   DataCell(
                                     Row(
@@ -280,7 +280,9 @@ class _SalesHistoryPageState extends State<SalesHistoryPage> {
                                   ),
                                   DataCell(Text(sale['userName'] ?? 'N/A')),
                                   DataCell(Text(sale['studentNumber'] ?? 'N/A')),
-                                  DataCell(Text(isBulkOrder ? 'Bulk Order (${sale['items'].length} items)' : sale['items'][0]['label'] ?? 'N/A')),
+                                  DataCell(Text(
+                                    isBulkOrder ? 'Bulk Order (${sale['items'].length} items)' : sale['items'][0]['label'] ?? 'N/A',
+                                  )),
                                   DataCell(Text(isBulkOrder ? '' : sale['items'][0]['itemSize'] ?? 'N/A')),
                                   DataCell(Text(isBulkOrder ? '' : '${sale['items'][0]['quantity']}')),
                                   DataCell(Text(isBulkOrder ? '' : sale['items'][0]['category'] ?? 'N/A')),
@@ -298,7 +300,7 @@ class _SalesHistoryPageState extends State<SalesHistoryPage> {
                             if (isExpanded) {
                               rows.addAll((sale['items'] as List).map<DataRow>((item) {
                                 return DataRow(
-                                  key: ValueKey('${sale['orNumber']}_${item['label']}'),
+                                  key: ValueKey('${sale['orNumber']}_${item['label']}_${item['itemSize']}'), // Unique key for each item row
                                   cells: [
                                     DataCell(Text('')),
                                     DataCell(Text('')),
