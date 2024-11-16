@@ -89,7 +89,7 @@ class _OverviewPageState extends State<OverviewPage> {
               seniorHighSales[itemLabel] = (seniorHighSales[itemLabel] ?? 0) + quantity;
             } else if (category == 'college_items') {
               collegeSales[itemLabel] = (collegeSales[itemLabel] ?? 0) + quantity;
-            } else if (category == 'merch_and_accessories') {
+            } else if (category == 'merch & accessories') {
               merchSales[itemLabel] = (merchSales[itemLabel] ?? 0) + quantity;
             }
           }

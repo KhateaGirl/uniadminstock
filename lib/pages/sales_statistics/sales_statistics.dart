@@ -80,9 +80,9 @@ class _SalesStatisticsPageState extends State<SalesStatisticsPage> {
 
             if (category == 'senior_high_items') {
               seniorHighSales[itemLabel] = (seniorHighSales[itemLabel] ?? 0) + quantity;
-            } else if (category == 'college_items') {
+            } else if (category == 'college items') {
               collegeSales[itemLabel] = (collegeSales[itemLabel] ?? 0) + quantity;
-            } else if (category == 'merch_and_accessories') {
+            } else if (category == 'merch & accessories' || category == 'merch_and_accessories') {
               merchSales[itemLabel] = (merchSales[itemLabel] ?? 0) + quantity;
             }
           }

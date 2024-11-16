@@ -71,7 +71,7 @@ class _MainWalkInPageState extends State<WalkinPage> {
       seniorHighSnapshot.docs.forEach((doc) {
         Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
         String? imagePath = data['imagePath'] as String?;
-        String label = data['label'] != null ? data['label'] as String : doc.id;
+        String label = data['itemLabel'] != null ? data['itemLabel'] as String : doc.id;
 
         double defaultPrice = data['price'] != null ? data['price'] as double : 0.0;
 
@@ -92,7 +92,7 @@ class _MainWalkInPageState extends State<WalkinPage> {
         }
 
         seniorHighData[doc.id] = {
-          'label': label,
+          'itemLabel': label,
           'imagePath': imagePath ?? '',
           'defaultPrice': defaultPrice,
           'sizes': stockData,
@@ -121,7 +121,7 @@ class _MainWalkInPageState extends State<WalkinPage> {
         courseSnapshot.docs.forEach((doc) {
           Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
           String? imagePath = data['imagePath'] as String?;
-          String label = data['label'] != null ? data['label'] as String : doc.id;
+          String label = data['itemLabel'] != null ? data['itemLabel'] as String : doc.id;
 
           double defaultPrice = data['price'] != null ? data['price'] as double : 0.0;
 
@@ -142,7 +142,7 @@ class _MainWalkInPageState extends State<WalkinPage> {
           }
 
           courseItems[doc.id] = {
-            'label': label,
+            'itemLabel': label,
             'imagePath': imagePath ?? '',
             'defaultPrice': defaultPrice,
             'sizes': stockData,
@@ -191,7 +191,7 @@ class _MainWalkInPageState extends State<WalkinPage> {
           }
 
           processedMerchData[key] = {
-            'label': key,
+            'itemLabel': key,
             'imagePath': imagePath ?? '',
             'defaultPrice': defaultPrice,
             'sizes': stockData,
@@ -440,7 +440,7 @@ class _MainWalkInPageState extends State<WalkinPage> {
   }
 
   Widget _buildItemCard(Map<String, dynamic>? itemData) {
-    String itemLabel = itemData?['label'] ?? 'Unknown';
+    String itemLabel = itemData?['itemLabel'] ?? 'Unknown';
     double defaultPrice = itemData?['defaultPrice'] ?? 0;
     Map<String, dynamic>? sizes = itemData?['sizes'];
 
@@ -627,7 +627,7 @@ class _MainWalkInPageState extends State<WalkinPage> {
 
           // Add item data to cartItems
           Map<String, dynamic> itemData = {
-            'itemLabel': item,
+            'label': item,
             'itemSize': size,
             'mainCategory': category,
             'pricePerPiece': itemPrice,
@@ -644,7 +644,7 @@ class _MainWalkInPageState extends State<WalkinPage> {
       CollectionReference approvedReservationsRef = FirebaseFirestore.instance.collection('approved_reservation');
       await approvedReservationsRef.add({
         'approvalDate': FieldValue.serverTimestamp(),  // Timestamp at document level
-        'studentName': studentName,
+        'name': studentName,
         'studentNumber': studentNumber,
         'contactNumber': contactNumber,
         'items': cartItems,  // Store items array without timestamps
@@ -677,7 +677,7 @@ class _MainWalkInPageState extends State<WalkinPage> {
     } else if (category == 'college_items' && courseLabel != null) {
 
       _collegeStockQuantities[courseLabel]?.forEach((docId, itemData) {
-        if (itemData['label'] == itemLabel) {
+        if (itemData['itemLabel'] == itemLabel) {
           price = itemData['sizes']?[selectedSize]?['price'] ?? itemData['defaultPrice'] ?? 0.0;
         }
       });

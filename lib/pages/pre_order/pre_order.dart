@@ -143,8 +143,6 @@ class _PreOrderPageState extends State<PreOrderPage> {
         throw Exception('Pre-order not found');
       }
 
-      // Processing and approval logic goes here...
-
     } catch (e) {
       print("Error approving pre-order: $e");
       ScaffoldMessenger.of(context).showSnackBar(
