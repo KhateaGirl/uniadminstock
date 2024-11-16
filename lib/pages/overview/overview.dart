@@ -85,9 +85,9 @@ class _OverviewPageState extends State<OverviewPage> {
             double quantity = (item['quantity'] ?? 0).toDouble();
             String category = item['mainCategory'] ?? 'Unknown';
 
-            if (category == 'senior_high_items') {
+            if (category == 'senior high items') {
               seniorHighSales[itemLabel] = (seniorHighSales[itemLabel] ?? 0) + quantity;
-            } else if (category == 'college_items') {
+            } else if (category == 'college items') {
               collegeSales[itemLabel] = (collegeSales[itemLabel] ?? 0) + quantity;
             } else if (category == 'merch & accessories') {
               merchSales[itemLabel] = (merchSales[itemLabel] ?? 0) + quantity;

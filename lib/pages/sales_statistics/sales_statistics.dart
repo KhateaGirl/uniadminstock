@@ -78,7 +78,7 @@ class _SalesStatisticsPageState extends State<SalesStatisticsPage> {
             double quantity = (item['quantity'] ?? 0).toDouble();
             String category = item['mainCategory'] ?? 'Unknown';
 
-            if (category == 'senior_high_items') {
+            if (category == 'senior high items') {
               seniorHighSales[itemLabel] = (seniorHighSales[itemLabel] ?? 0) + quantity;
             } else if (category == 'college items') {
               collegeSales[itemLabel] = (collegeSales[itemLabel] ?? 0) + quantity;
