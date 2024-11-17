@@ -35,8 +35,10 @@ class _InventorySummaryPageState extends State<InventorySummaryPage> {
         _fetchSeniorHighStock(),
         _fetchCollegeStock(),
         _fetchMerchStock(),
-        _fetchSoldData(),  // Fetch sold data
+        _fetchSoldData(), // Fetch sold data
       ]);
+
+      debugSoldData(); // Debug Sold Data keys
 
       setState(() {
         _loading = false;
@@ -49,9 +51,16 @@ class _InventorySummaryPageState extends State<InventorySummaryPage> {
     }
   }
 
+  void debugSoldData() {
+    print("Sold Data Keys: ${_soldData.keys.toList()}");
+    _soldData.forEach((key, value) {
+      print("Category: $key, Data: $value");
+    });
+  }
+
   Future<void> _fetchSoldData() async {
     try {
-      QuerySnapshot snapshot = await firestore.collection('approved_items').get();
+      QuerySnapshot snapshot = await firestore.collection('admin_transactions').get();
       Map<String, Map<String, Map<String, int>>> newSoldData = {};
 
       for (var doc in snapshot.docs) {
@@ -69,14 +78,12 @@ class _InventorySummaryPageState extends State<InventorySummaryPage> {
               newSoldData[category]![label] = newSoldData[category]![label] ?? {};
               newSoldData[category]![label]![size] = (newSoldData[category]![label]![size] ?? 0) + quantity;
 
-              // Print each item being processed
               print("Processed item - Category: $category, Label: $label, Size: $size, Quantity: $quantity");
             }
           }
         }
       }
 
-      // Print final sold data structure
       print("Final Sold Data: $newSoldData");
 
       setState(() {
@@ -212,16 +219,15 @@ class _InventorySummaryPageState extends State<InventorySummaryPage> {
   }
 
   Widget _buildStockSummary(String category, Map<String, Map<String, dynamic>>? stockData) {
-    // Map the UI category to Firestore category names
-    String soldDataCategory = category == 'College' ? 'college_items'
-        : category == 'Senior High' ? 'senior_high_items'
-        : category == 'Merch & Accessories' ? 'merch_and_accessories'
-        : '';
+    // Map the category to the exact sold data key
+    final categoryMapping = {
+      'Senior High': 'senior high items',
+      'College': 'college items',
+      'Merch & Accessories': 'merch & accessories',
+    };
 
-    // Fetch the relevant sold data
-    final categorySoldData = _soldData[soldDataCategory];
-
-    print("Building summary for $category with sold data: $categorySoldData");
+    String soldDataCategory = categoryMapping[category] ?? category.toLowerCase();
+    final categorySoldData = _soldData[soldDataCategory] ?? {};
 
     if (stockData == null || stockData.isEmpty) {
       return Column(
@@ -237,24 +243,38 @@ class _InventorySummaryPageState extends State<InventorySummaryPage> {
       );
     }
 
-    // College category with dropdown
     if (category == 'College') {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'College Summary',
+            '$category Summary',
             style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
           ),
-          ...stockData.keys.map((courseLabel) {
-            final courseItems = stockData[courseLabel];
+          ...stockData.keys.map((courseKey) {
+            final courseItems = stockData[courseKey];
+            if (courseItems == null || courseItems.isEmpty) return SizedBox.shrink();
+
             return ExpansionTile(
-              title: Text(courseLabel, style: TextStyle(fontWeight: FontWeight.bold)),
-              children: courseItems?.keys.map((itemKey) {
+              title: Text(courseKey, style: TextStyle(fontWeight: FontWeight.bold)),
+              children: courseItems.keys.map((itemKey) {
                 final item = courseItems[itemKey];
                 final label = item?['label'] ?? itemKey;
                 final stock = item?['stock'] as Map<String, dynamic>? ?? {};
-                final soldItems = categorySoldData?[label] ?? {};
+
+                // First try exact match
+                Map<String, int> soldItems = categorySoldData[label] ?? {};
+
+                // If exact match fails, use normalized label matching
+                if (soldItems.isEmpty) {
+                  final normalizedLabel = label.toString().toLowerCase().trim();
+                  soldItems = categorySoldData.entries.firstWhere(
+                        (entry) => entry.key.toLowerCase().trim() == normalizedLabel,
+                    orElse: () => MapEntry("", {}),
+                  ).value;
+                }
+
+                print("Course: $courseKey, Item: $label, Sold Data: $soldItems");
 
                 return Padding(
                   padding: const EdgeInsets.symmetric(vertical: 4.0, horizontal: 16.0),
@@ -264,13 +284,13 @@ class _InventorySummaryPageState extends State<InventorySummaryPage> {
                       Text(label, style: TextStyle(fontWeight: FontWeight.bold)),
                       ...stock.keys.map((sizeKey) {
                         final size = stock[sizeKey];
-                        final soldQuantity = soldItems[sizeKey] ?? 0;
+                        final soldQuantity = soldItems[sizeKey] ?? 0; // Fetch sold quantity
                         return Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
                             Text('Size: $sizeKey'),
                             Text('Quantity: ${size['quantity']}'),
-                            Text('Sold: $soldQuantity'),
+                            Text('Sold: $soldQuantity'), // Display sold items
                             Text('Price: ₱${size['price'].toStringAsFixed(2)}'),
                           ],
                         );
@@ -279,14 +299,14 @@ class _InventorySummaryPageState extends State<InventorySummaryPage> {
                     ],
                   ),
                 );
-              }).toList() ?? [],
+              }).toList(),
             );
           }).toList(),
         ],
       );
     }
 
-    // Other categories without dropdown
+    // Handle other categories (Senior High and Merch & Accessories)
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -298,7 +318,20 @@ class _InventorySummaryPageState extends State<InventorySummaryPage> {
           final item = stockData[itemKey];
           final label = item?['label'] ?? itemKey;
           final stock = item?['stock'] as Map<String, dynamic>? ?? {};
-          final soldItems = categorySoldData?[label] ?? {};
+
+          // First try exact match
+          Map<String, int> soldItems = categorySoldData[label] ?? {};
+
+          // If exact match fails, use normalized label matching
+          if (soldItems.isEmpty) {
+            final normalizedLabel = label.toString().toLowerCase().trim();
+            soldItems = categorySoldData.entries.firstWhere(
+                  (entry) => entry.key.toLowerCase().trim() == normalizedLabel,
+              orElse: () => MapEntry("", {}),
+            ).value;
+          }
+
+          print("Category: $category, Item: $label, Sold Data: $soldItems");
 
           return Padding(
             padding: const EdgeInsets.symmetric(vertical: 4.0),
@@ -308,13 +341,13 @@ class _InventorySummaryPageState extends State<InventorySummaryPage> {
                 Text(label, style: TextStyle(fontWeight: FontWeight.bold)),
                 ...stock.keys.map((sizeKey) {
                   final size = stock[sizeKey];
-                  final soldQuantity = soldItems[sizeKey] ?? 0;
+                  final soldQuantity = soldItems[sizeKey] ?? 0; // Fetch sold quantity
                   return Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       Text('Size: $sizeKey'),
                       Text('Quantity: ${size['quantity']}'),
-                      Text('Sold: $soldQuantity'),
+                      Text('Sold: $soldQuantity'), // Display sold items
                       Text('Price: ₱${size['price'].toStringAsFixed(2)}'),
                     ],
                   );
@@ -330,13 +363,11 @@ class _InventorySummaryPageState extends State<InventorySummaryPage> {
 
   Future<void> _printSummary() async {
     final pdf = pw.Document();
-    final maxHeight = PdfPageFormat.a4.availableHeight;
 
-    // List to hold each category's summary
     List<Map<String, dynamic>> categorySummaries = [
-      {"title": "Senior High Summary", "data": _seniorHighStock, "soldCategory": "senior_high_items"},
-      {"title": "College Summary", "data": _collegeStock, "soldCategory": "college_items"},
-      {"title": "Merch & Accessories Summary", "data": _merchStock, "soldCategory": "merch_and_accessories"},
+      {"title": "Senior High Summary", "data": _seniorHighStock, "soldCategory": "senior high items"},
+      {"title": "College Summary", "data": _collegeStock, "soldCategory": "college items"},
+      {"title": "Merch & Accessories Summary", "data": _merchStock, "soldCategory": "merch & accessories"},
     ];
 
     for (var category in categorySummaries) {
@@ -344,103 +375,108 @@ class _InventorySummaryPageState extends State<InventorySummaryPage> {
       Map<String, Map<String, dynamic>>? stockData = category["data"];
       String soldCategory = category["soldCategory"];
 
-      if (stockData == null || stockData.isEmpty) {
-        continue; // Skip empty or null categories
-      }
+      if (stockData == null || stockData.isEmpty) continue;
 
-      List<pw.Widget> categoryWidgets = [];
+      final categoryWidgets = <pw.Widget>[];
 
       // Add category title
       categoryWidgets.add(
-        pw.Text(categoryTitle, style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold)),
+        pw.Text(
+          categoryTitle,
+          style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold),
+        ),
       );
 
+      // Handle College dropdown structure
       if (categoryTitle == "College Summary") {
         stockData.forEach((courseLabel, courseItems) {
-          categoryWidgets.add(pw.Text(courseLabel, style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)));
+          categoryWidgets.add(
+            pw.Padding(
+              padding: const pw.EdgeInsets.only(top: 8),
+              child: pw.Text(
+                courseLabel,
+                style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold),
+              ),
+            ),
+          );
 
+          // Process items under each course
           (courseItems as Map<String, dynamic>).forEach((itemKey, item) {
-            String label = item['label'] ?? itemKey;
+            final label = item['label'] ?? itemKey;
             final stock = item['stock'] as Map<String, dynamic>? ?? {};
             final soldItems = _soldData[soldCategory]?[label] ?? {};
 
-            categoryWidgets.add(pw.Text(label, style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold)));
+            categoryWidgets.add(
+              pw.Padding(
+                padding: const pw.EdgeInsets.only(left: 16, top: 4),
+                child: pw.Text(
+                  label,
+                  style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold),
+                ),
+              ),
+            );
 
             stock.forEach((sizeKey, sizeDetails) {
               final soldQuantity = soldItems[sizeKey] ?? 0;
               categoryWidgets.add(
-                pw.Text(
-                  'Size: $sizeKey, Quantity: ${sizeDetails['quantity'] ?? 0}, Sold: $soldQuantity, Price: ₱${sizeDetails['price'] ?? 0.0}',
-                  style: pw.TextStyle(fontSize: 12),
+                pw.Padding(
+                  padding: const pw.EdgeInsets.only(left: 32, top: 2),
+                  child: pw.Text(
+                    'Size: $sizeKey, Quantity: ${sizeDetails['quantity'] ?? 0}, Sold: $soldQuantity, Price: ₱${sizeDetails['price'] ?? 0.0}',
+                    style: pw.TextStyle(fontSize: 12),
+                  ),
                 ),
               );
             });
           });
         });
       } else {
+        // Handle other categories
         stockData.forEach((itemKey, item) {
-          String label = item['label'] ?? itemKey;
-          final stock = item['stock'] as Map<String, dynamic>? ?? {};
+          final label = item?['label'] ?? itemKey;
+          final stock = item?['stock'] as Map<String, dynamic>? ?? {};
           final soldItems = _soldData[soldCategory]?[label] ?? {};
 
-          categoryWidgets.add(pw.Text(label, style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold)));
+          categoryWidgets.add(
+            pw.Padding(
+              padding: const pw.EdgeInsets.only(top: 8),
+              child: pw.Text(
+                label,
+                style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold),
+              ),
+            ),
+          );
 
           stock.forEach((sizeKey, sizeDetails) {
             final soldQuantity = soldItems[sizeKey] ?? 0;
             categoryWidgets.add(
-              pw.Text(
-                'Size: $sizeKey, Quantity: ${sizeDetails['quantity'] ?? 0}, Sold: $soldQuantity, Price: ₱${sizeDetails['price'] ?? 0.0}',
-                style: pw.TextStyle(fontSize: 12),
+              pw.Padding(
+                padding: const pw.EdgeInsets.only(left: 16, top: 4),
+                child: pw.Text(
+                  'Size: $sizeKey, Quantity: ${sizeDetails['quantity'] ?? 0}, Sold: $soldQuantity, Price: ₱${sizeDetails['price'] ?? 0.0}',
+                  style: pw.TextStyle(fontSize: 12),
+                ),
               ),
             );
           });
         });
       }
 
-      // Divide categoryWidgets into pages based on maxHeight
-      List<pw.Widget> pageWidgets = [];
-      double currentHeight = 0;
-      const lineHeight = 15.0;
-
-      for (var widget in categoryWidgets) {
-        // Check if adding the next widget would exceed the maxHeight
-        if (currentHeight + lineHeight > maxHeight) {
-          // Add the accumulated widgets as a new page
-          pdf.addPage(
-            pw.Page(
-              build: (pw.Context context) {
-                return pw.Column(
-                  crossAxisAlignment: pw.CrossAxisAlignment.start,
-                  children: pageWidgets,
-                );
-              },
+      // Render the category page
+      pdf.addPage(
+        pw.MultiPage(
+          build: (context) => [
+            pw.Column(
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              children: categoryWidgets,
             ),
-          );
-          // Reset for the next page
-          pageWidgets = [];
-          currentHeight = 0;
-        }
-
-        pageWidgets.add(widget);
-        currentHeight += lineHeight;
-      }
-
-      // Add any remaining widgets as the last page for this category
-      if (pageWidgets.isNotEmpty) {
-        pdf.addPage(
-          pw.Page(
-            build: (pw.Context context) {
-              return pw.Column(
-                crossAxisAlignment: pw.CrossAxisAlignment.start,
-                children: pageWidgets,
-              );
-            },
-          ),
-        );
-      }
+          ],
+        ),
+      );
     }
 
-    // Print or preview the generated PDF
+    // Save and display the PDF
+    print("PDF generation completed. Saving...");
     await Printing.layoutPdf(
       onLayout: (PdfPageFormat format) async => pdf.save(),
     );
