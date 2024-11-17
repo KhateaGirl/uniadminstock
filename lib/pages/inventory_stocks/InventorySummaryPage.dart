@@ -243,7 +243,8 @@ class _InventorySummaryPageState extends State<InventorySummaryPage> {
       );
     }
 
-    if (category == 'College') {
+    // DataTable for non-College categories
+    if (category != 'College') {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -251,62 +252,52 @@ class _InventorySummaryPageState extends State<InventorySummaryPage> {
             '$category Summary',
             style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
           ),
-          ...stockData.keys.map((courseKey) {
-            final courseItems = stockData[courseKey];
-            if (courseItems == null || courseItems.isEmpty) return SizedBox.shrink();
+          ...stockData.keys.map((itemKey) {
+            final item = stockData[itemKey];
+            final label = item?['label'] ?? itemKey;
+            final stock = item?['stock'] as Map<String, dynamic>? ?? {};
 
-            return ExpansionTile(
-              title: Text(courseKey, style: TextStyle(fontWeight: FontWeight.bold)),
-              children: courseItems.keys.map((itemKey) {
-                final item = courseItems[itemKey];
-                final label = item?['label'] ?? itemKey;
-                final stock = item?['stock'] as Map<String, dynamic>? ?? {};
+            // Fetch sold data
+            Map<String, int> soldItems = categorySoldData[label] ?? {};
+            if (soldItems.isEmpty) {
+              final normalizedLabel = label.toString().toLowerCase().trim();
+              soldItems = categorySoldData.entries.firstWhere(
+                    (entry) => entry.key.toLowerCase().trim() == normalizedLabel,
+                orElse: () => MapEntry("", {}),
+              ).value;
+            }
 
-                // First try exact match
-                Map<String, int> soldItems = categorySoldData[label] ?? {};
-
-                // If exact match fails, use normalized label matching
-                if (soldItems.isEmpty) {
-                  final normalizedLabel = label.toString().toLowerCase().trim();
-                  soldItems = categorySoldData.entries.firstWhere(
-                        (entry) => entry.key.toLowerCase().trim() == normalizedLabel,
-                    orElse: () => MapEntry("", {}),
-                  ).value;
-                }
-
-                print("Course: $courseKey, Item: $label, Sold Data: $soldItems");
-
-                return Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 4.0, horizontal: 16.0),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(label, style: TextStyle(fontWeight: FontWeight.bold)),
-                      ...stock.keys.map((sizeKey) {
-                        final size = stock[sizeKey];
-                        final soldQuantity = soldItems[sizeKey] ?? 0; // Fetch sold quantity
-                        return Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Text('Size: $sizeKey'),
-                            Text('Quantity: ${size['quantity']}'),
-                            Text('Sold: $soldQuantity'), // Display sold items
-                            Text('Price: ₱${size['price'].toStringAsFixed(2)}'),
-                          ],
-                        );
-                      }).toList(),
-                      Divider(thickness: 1),
-                    ],
-                  ),
-                );
-              }).toList(),
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(label, style: TextStyle(fontWeight: FontWeight.bold)),
+                DataTable(
+                  columns: [
+                    DataColumn(label: Text('Size')),
+                    DataColumn(label: Text('Quantity')),
+                    DataColumn(label: Text('Sold')),
+                    DataColumn(label: Text('Price')),
+                  ],
+                  rows: stock.keys.map((sizeKey) {
+                    final size = stock[sizeKey];
+                    final soldQuantity = soldItems[sizeKey] ?? 0;
+                    return DataRow(cells: [
+                      DataCell(Text(sizeKey)),
+                      DataCell(Text('${size['quantity']}')),
+                      DataCell(Text('$soldQuantity')),
+                      DataCell(Text('₱${size['price'].toStringAsFixed(2)}')),
+                    ]);
+                  }).toList(),
+                ),
+                Divider(thickness: 1),
+              ],
             );
           }).toList(),
         ],
       );
     }
 
-    // Handle other categories (Senior High and Merch & Accessories)
+    // DataTable for College category with ExpansionTile
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -314,47 +305,53 @@ class _InventorySummaryPageState extends State<InventorySummaryPage> {
           '$category Summary',
           style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
         ),
-        ...stockData.keys.map((itemKey) {
-          final item = stockData[itemKey];
-          final label = item?['label'] ?? itemKey;
-          final stock = item?['stock'] as Map<String, dynamic>? ?? {};
+        ...stockData.keys.map((courseKey) {
+          final courseItems = stockData[courseKey];
+          if (courseItems == null || courseItems.isEmpty) return SizedBox.shrink();
 
-          // First try exact match
-          Map<String, int> soldItems = categorySoldData[label] ?? {};
+          return ExpansionTile(
+            title: Text(courseKey, style: TextStyle(fontWeight: FontWeight.bold)),
+            children: courseItems.keys.map((itemKey) {
+              final item = courseItems[itemKey];
+              final label = item?['label'] ?? itemKey;
+              final stock = item?['stock'] as Map<String, dynamic>? ?? {};
 
-          // If exact match fails, use normalized label matching
-          if (soldItems.isEmpty) {
-            final normalizedLabel = label.toString().toLowerCase().trim();
-            soldItems = categorySoldData.entries.firstWhere(
-                  (entry) => entry.key.toLowerCase().trim() == normalizedLabel,
-              orElse: () => MapEntry("", {}),
-            ).value;
-          }
+              // Fetch sold data
+              Map<String, int> soldItems = categorySoldData[label] ?? {};
+              if (soldItems.isEmpty) {
+                final normalizedLabel = label.toString().toLowerCase().trim();
+                soldItems = categorySoldData.entries.firstWhere(
+                      (entry) => entry.key.toLowerCase().trim() == normalizedLabel,
+                  orElse: () => MapEntry("", {}),
+                ).value;
+              }
 
-          print("Category: $category, Item: $label, Sold Data: $soldItems");
-
-          return Padding(
-            padding: const EdgeInsets.symmetric(vertical: 4.0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(label, style: TextStyle(fontWeight: FontWeight.bold)),
-                ...stock.keys.map((sizeKey) {
-                  final size = stock[sizeKey];
-                  final soldQuantity = soldItems[sizeKey] ?? 0; // Fetch sold quantity
-                  return Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text('Size: $sizeKey'),
-                      Text('Quantity: ${size['quantity']}'),
-                      Text('Sold: $soldQuantity'), // Display sold items
-                      Text('Price: ₱${size['price'].toStringAsFixed(2)}'),
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(label, style: TextStyle(fontWeight: FontWeight.bold)),
+                  DataTable(
+                    columns: [
+                      DataColumn(label: Text('Size')),
+                      DataColumn(label: Text('Quantity')),
+                      DataColumn(label: Text('Sold')),
+                      DataColumn(label: Text('Price')),
                     ],
-                  );
-                }).toList(),
-                Divider(thickness: 1),
-              ],
-            ),
+                    rows: stock.keys.map((sizeKey) {
+                      final size = stock[sizeKey];
+                      final soldQuantity = soldItems[sizeKey] ?? 0;
+                      return DataRow(cells: [
+                        DataCell(Text(sizeKey)),
+                        DataCell(Text('${size['quantity']}')),
+                        DataCell(Text('$soldQuantity')),
+                        DataCell(Text('₱${size['price'].toStringAsFixed(2)}')),
+                      ]);
+                    }).toList(),
+                  ),
+                  Divider(thickness: 1),
+                ],
+              );
+            }).toList(),
           );
         }).toList(),
       ],
@@ -374,6 +371,7 @@ class _InventorySummaryPageState extends State<InventorySummaryPage> {
       String categoryTitle = category["title"];
       Map<String, Map<String, dynamic>>? stockData = category["data"];
       String soldCategory = category["soldCategory"];
+      final categorySoldData = _soldData[soldCategory] ?? {};
 
       if (stockData == null || stockData.isEmpty) continue;
 
@@ -387,80 +385,43 @@ class _InventorySummaryPageState extends State<InventorySummaryPage> {
         ),
       );
 
-      // Handle College dropdown structure
-      if (categoryTitle == "College Summary") {
-        stockData.forEach((courseLabel, courseItems) {
-          categoryWidgets.add(
-            pw.Padding(
-              padding: const pw.EdgeInsets.only(top: 8),
-              child: pw.Text(
-                courseLabel,
-                style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold),
-              ),
+      // Loop through the stock data
+      stockData.forEach((itemKey, item) {
+        final label = item['label'] ?? itemKey;
+        final stock = item['stock'] as Map<String, dynamic>? ?? {};
+        Map<String, int> soldItems = categorySoldData[label] ?? {};
+
+        categoryWidgets.add(
+          pw.Padding(
+            padding: const pw.EdgeInsets.only(top: 8),
+            child: pw.Text(
+              label,
+              style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold),
             ),
-          );
+          ),
+        );
 
-          // Process items under each course
-          (courseItems as Map<String, dynamic>).forEach((itemKey, item) {
-            final label = item['label'] ?? itemKey;
-            final stock = item['stock'] as Map<String, dynamic>? ?? {};
-            final soldItems = _soldData[soldCategory]?[label] ?? {};
-
-            categoryWidgets.add(
-              pw.Padding(
-                padding: const pw.EdgeInsets.only(left: 16, top: 4),
-                child: pw.Text(
-                  label,
-                  style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold),
-                ),
-              ),
-            );
-
-            stock.forEach((sizeKey, sizeDetails) {
+        // Add a table for the item details
+        categoryWidgets.add(
+          pw.Table.fromTextArray(
+            headers: ['Size', 'Quantity', 'Sold', 'Price'],
+            data: stock.keys.map((sizeKey) {
+              final size = stock[sizeKey];
               final soldQuantity = soldItems[sizeKey] ?? 0;
-              categoryWidgets.add(
-                pw.Padding(
-                  padding: const pw.EdgeInsets.only(left: 32, top: 2),
-                  child: pw.Text(
-                    'Size: $sizeKey, Quantity: ${sizeDetails['quantity'] ?? 0}, Sold: $soldQuantity, Price: ₱${sizeDetails['price'] ?? 0.0}',
-                    style: pw.TextStyle(fontSize: 12),
-                  ),
-                ),
-              );
-            });
-          });
-        });
-      } else {
-        // Handle other categories
-        stockData.forEach((itemKey, item) {
-          final label = item?['label'] ?? itemKey;
-          final stock = item?['stock'] as Map<String, dynamic>? ?? {};
-          final soldItems = _soldData[soldCategory]?[label] ?? {};
-
-          categoryWidgets.add(
-            pw.Padding(
-              padding: const pw.EdgeInsets.only(top: 8),
-              child: pw.Text(
-                label,
-                style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold),
-              ),
-            ),
-          );
-
-          stock.forEach((sizeKey, sizeDetails) {
-            final soldQuantity = soldItems[sizeKey] ?? 0;
-            categoryWidgets.add(
-              pw.Padding(
-                padding: const pw.EdgeInsets.only(left: 16, top: 4),
-                child: pw.Text(
-                  'Size: $sizeKey, Quantity: ${sizeDetails['quantity'] ?? 0}, Sold: $soldQuantity, Price: ₱${sizeDetails['price'] ?? 0.0}',
-                  style: pw.TextStyle(fontSize: 12),
-                ),
-              ),
-            );
-          });
-        });
-      }
+              return [
+                sizeKey,
+                size['quantity'].toString(),
+                soldQuantity.toString(),
+                '₱${size['price'].toStringAsFixed(2)}'
+              ];
+            }).toList(),
+            border: pw.TableBorder.all(),
+            cellAlignment: pw.Alignment.centerLeft,
+            headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold),
+            cellStyle: pw.TextStyle(fontSize: 10),
+          ),
+        );
+      });
 
       // Render the category page
       pdf.addPage(
@@ -476,7 +437,6 @@ class _InventorySummaryPageState extends State<InventorySummaryPage> {
     }
 
     // Save and display the PDF
-    print("PDF generation completed. Saving...");
     await Printing.layoutPdf(
       onLayout: (PdfPageFormat format) async => pdf.save(),
     );
