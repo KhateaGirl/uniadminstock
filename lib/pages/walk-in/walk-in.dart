@@ -110,6 +110,7 @@ class _MainWalkInPageState extends State<WalkinPage> {
   Future<void> _fetchCollegeStock() async {
     try {
       Map<String, Map<String, dynamic>> collegeData = {};
+
       for (String courseLabel in _courseLabels) {
         QuerySnapshot courseSnapshot = await FirebaseFirestore.instance
             .collection('Inventory_stock')
@@ -120,8 +121,11 @@ class _MainWalkInPageState extends State<WalkinPage> {
         Map<String, Map<String, dynamic>> courseItems = {};
         courseSnapshot.docs.forEach((doc) {
           Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
-          String? imagePath = data['imagePath'] as String?;
-          String label = data['itemLabel'] != null ? data['itemLabel'] as String : doc.id;
+
+          // Use the 'label' field and fallback to the document ID if missing
+          String label = data['label'] != null && data['label'] != ''
+              ? data['label'] as String
+              : doc.id;
 
           double defaultPrice = data['price'] != null ? data['price'] as double : 0.0;
 
@@ -142,8 +146,8 @@ class _MainWalkInPageState extends State<WalkinPage> {
           }
 
           courseItems[doc.id] = {
-            'itemLabel': label,
-            'imagePath': imagePath ?? '',
+            'label': label,
+            'imageUrl': data['imageUrl'] ?? '',
             'defaultPrice': defaultPrice,
             'sizes': stockData,
           };
@@ -155,7 +159,9 @@ class _MainWalkInPageState extends State<WalkinPage> {
       setState(() {
         _collegeStockQuantities = collegeData;
       });
+
     } catch (e) {
+      print("Error fetching college stock: $e");
     }
   }
 
@@ -440,7 +446,8 @@ class _MainWalkInPageState extends State<WalkinPage> {
   }
 
   Widget _buildItemCard(Map<String, dynamic>? itemData) {
-    String itemLabel = itemData?['itemLabel'] ?? 'Unknown';
+    // Dynamically determine the label field based on available keys
+    String itemLabel = itemData?['label'] ?? itemData?['itemLabel'] ?? 'Unknown';
     double defaultPrice = itemData?['defaultPrice'] ?? 0;
     Map<String, dynamic>? sizes = itemData?['sizes'];
 
@@ -483,8 +490,6 @@ class _MainWalkInPageState extends State<WalkinPage> {
                 setState(() {
                   _selectedSizes[itemLabel] = newSize;
                   _selectedQuantities[itemLabel] = 0;
-
-                  double selectedPrice = sizes![newSize]?['price'] ?? defaultPrice;
                 });
               },
               items: availableSizes.map((size) {
@@ -575,16 +580,18 @@ class _MainWalkInPageState extends State<WalkinPage> {
 
   Future<void> _submitOrder() async {
     if (!_formKey.currentState!.validate()) {
+      print('Form validation failed.');
       return;
     }
 
     bool hasSelectedItem = _selectedQuantities.values.any((quantity) => quantity > 0);
-
     if (!hasSelectedItem) {
+      print('No items selected.');
       Get.snackbar('Error', 'No items selected. Please add at least one item to the order.');
       return;
     }
 
+    print('Starting order submission...');
     String studentName = _nameController.text;
     String studentNumber = _studentNumberController.text;
     String contactNumber = _contactNumberController.text;
@@ -593,7 +600,6 @@ class _MainWalkInPageState extends State<WalkinPage> {
       List<Map<String, dynamic>> cartItems = [];
       double totalAmount = 0.0;
 
-      // Add item data to the cart
       for (String item in _selectedQuantities.keys) {
         int quantity = _selectedQuantities[item] ?? 0;
         String? size = _selectedSizes[item];
@@ -601,7 +607,6 @@ class _MainWalkInPageState extends State<WalkinPage> {
           String category;
           String? courseLabel;
 
-          // Determine category and courseLabel
           if (_selectedCategory == 'Uniform') {
             if (_selectedSchoolLevel == 'Senior High') {
               category = 'senior_high_items';
@@ -616,7 +621,7 @@ class _MainWalkInPageState extends State<WalkinPage> {
           String documentId = _findDocumentIdForItem(item);
 
           if (documentId == null) {
-            print("Warning: Document ID not found for item $item");
+            print("Document ID not found for item $item");
             continue;
           }
 
@@ -625,40 +630,40 @@ class _MainWalkInPageState extends State<WalkinPage> {
 
           totalAmount += total;
 
-          // Add item data to cartItems
-          Map<String, dynamic> itemData = {
+          cartItems.add({
             'label': item,
             'itemSize': size,
             'mainCategory': category,
             'pricePerPiece': itemPrice,
             'quantity': quantity,
             'subCategory': courseLabel ?? 'N/A',
-            // Do not add serverTimestamp() inside item data
-          };
-
-          cartItems.add(itemData);
+          });
         }
       }
 
-      // Store the order in Firestore
-      CollectionReference approvedReservationsRef = FirebaseFirestore.instance.collection('approved_reservation');
+      print('Cart Items: $cartItems');
+      print('Total Amount: $totalAmount');
+
+      CollectionReference approvedReservationsRef =
+      FirebaseFirestore.instance.collection('approved_reservation');
       await approvedReservationsRef.add({
-        'approvalDate': FieldValue.serverTimestamp(),  // Timestamp at document level
+        'approvalDate': FieldValue.serverTimestamp(),
         'name': studentName,
         'studentNumber': studentNumber,
         'contactNumber': contactNumber,
-        'items': cartItems,  // Store items array without timestamps
+        'items': cartItems,
       });
 
-      // Send SMS to the user
+      print('Order stored in Firestore.');
+
       await _sendSMSToUser(contactNumber, studentName, studentNumber, totalAmount, cartItems);
 
+      print('SMS sent successfully.');
       Get.snackbar('Success', 'Order submitted and SMS sent successfully!');
       _refreshData();
-
     } catch (e) {
-      Get.snackbar('Error', 'Failed to submit the order. Please try again.');
       print('Error in _submitOrder: $e');
+      Get.snackbar('Error', 'Failed to submit the order. Please try again.');
     }
   }
 

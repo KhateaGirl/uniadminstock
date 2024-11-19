@@ -51,6 +51,7 @@ class _ReleasePageState extends State<ReleasePage> {
         transactionData['transactionId'] = doc.id;
 
         transactionData['name'] = transactionData['name'] ?? 'Unknown User';
+        transactionData['studentNumber'] = transactionData['studentNumber'] ?? 'Unknown ID';
         transactionData['studentId'] = transactionData['studentId'] ?? 'Unknown ID';
 
         if (transactionData.containsKey('items') &&
@@ -490,7 +491,11 @@ class _ReleasePageState extends State<ReleasePage> {
                           key: ValueKey('${reservation['transactionId']}_${label}'), // Unique key
                           cells: [
                             DataCell(Text(reservation['name'] ?? 'Unknown User')),
-                            DataCell(Text(reservation['studentId'] ?? 'Unknown ID')),
+                            DataCell(Text(
+                              reservation['studentNumber'] != null && reservation['studentNumber'] != 'Unknown ID'
+                                  ? reservation['studentNumber']
+                                  : (reservation['studentId'] ?? 'Unknown ID'),
+                            )),
                             DataCell(Text(label)),
                             DataCell(Text(size)),
                             DataCell(Text('$quantity')),
