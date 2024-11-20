@@ -46,14 +46,20 @@ class _ReleasePageState extends State<ReleasePage> {
       // Fetch approved reservations
       QuerySnapshot approvedReservationsSnapshot =
       await _firestore.collection('approved_reservation').get();
+
       for (var doc in approvedReservationsSnapshot.docs) {
         Map<String, dynamic> transactionData = doc.data() as Map<String, dynamic>;
         transactionData['transactionId'] = doc.id;
 
-        transactionData['name'] = transactionData['name'] ?? 'Unknown User';
-        transactionData['studentNumber'] = transactionData['studentNumber'] ?? 'Unknown ID';
-        transactionData['studentId'] = transactionData['studentId'] ?? 'Unknown ID';
+        // Standardize the name and student ID fields
+        transactionData['name'] = transactionData['name'] ??
+            transactionData['studentName'] ?? // Fallback to `studentName` if `name` is missing
+            'Unknown User';
+        transactionData['studentId'] = transactionData['studentId'] ??
+            transactionData['studentNumber'] ?? // Fallback to `studentNumber` if `studentId` is missing
+            'Unknown ID';
 
+        // Process item details
         if (transactionData.containsKey('items') &&
             transactionData['items'] is List) {
           for (var item in transactionData['items']) {
@@ -72,28 +78,39 @@ class _ReleasePageState extends State<ReleasePage> {
       // Fetch approved preorders
       QuerySnapshot approvedPreordersSnapshot =
       await _firestore.collection('approved_preorders').get();
+
       for (var doc in approvedPreordersSnapshot.docs) {
         Map<String, dynamic> preorderData = doc.data() as Map<String, dynamic>;
         preorderData['transactionId'] = doc.id;
 
-        // Fetch user data using userId
-        if (preorderData.containsKey('userId')) {
+        // Fetch user data if `userId` is available
+        if (preorderData.containsKey('userId') && preorderData['userId'] != null) {
           String userId = preorderData['userId'];
           DocumentSnapshot userDoc =
           await _firestore.collection('users').doc(userId).get();
           if (userDoc.exists) {
-            preorderData['name'] = userDoc['name'] ?? 'Unknown User';
-            preorderData['studentId'] =
-                userDoc['studentId'] ?? 'Unknown ID';
+            Map<String, dynamic> userData = userDoc.data() as Map<String, dynamic>;
+
+            preorderData['name'] = userData['name'] ??
+                userData['studentName'] ?? // Use `studentName` if `name` is missing
+                'Unknown User';
+            preorderData['studentId'] = userData['studentId'] ??
+                userData['studentNumber'] ?? // Use `studentNumber` if `studentId` is missing
+                'Unknown ID';
           } else {
             preorderData['name'] = 'Unknown User';
             preorderData['studentId'] = 'Unknown ID';
           }
         } else {
-          preorderData['name'] = 'Unknown User';
-          preorderData['studentId'] = 'Unknown ID';
+          preorderData['name'] = preorderData['name'] ??
+              preorderData['studentName'] ?? // Use `studentName` if `name` is missing
+              'Unknown User';
+          preorderData['studentId'] = preorderData['studentId'] ??
+              preorderData['studentNumber'] ?? // Use `studentNumber` if `studentId` is missing
+              'Unknown ID';
         }
 
+        // Process item details
         if (preorderData.containsKey('items') &&
             preorderData['items'] is List) {
           for (var item in preorderData['items']) {
@@ -109,6 +126,7 @@ class _ReleasePageState extends State<ReleasePage> {
         approvedTransactions.add(preorderData);
       }
 
+      // Update state with the fetched transactions
       setState(() {
         allPendingReservations = approvedTransactions;
         isLoading = false;
@@ -123,6 +141,7 @@ class _ReleasePageState extends State<ReleasePage> {
           backgroundColor: Colors.red,
         ),
       );
+      print('Error fetching approved transactions: $e');
     }
   }
 
@@ -202,21 +221,36 @@ class _ReleasePageState extends State<ReleasePage> {
     try {
       print("Approval process started for reservation ID: ${reservation['transactionId']}");
 
+      // Add the OR Number to the reservation
       reservation['orNumber'] = orNumber;
 
-      // Fetch user data based on userId
-      String userName = reservation['userName'] ?? 'Unknown User';
-      String studentId = reservation['studentId'] ?? 'Unknown ID';
+      // Log the initial state of the reservation
+      print("Initial reservation document: $reservation");
 
+      // Initialize variables for user details
+      String userName = reservation['userName'] ?? reservation['name'] ?? 'Unknown User';
+      String studentId = reservation['studentId'] ?? reservation['studentNumber'] ?? 'Unknown ID';
+
+      // Fetch additional user data if userId is present
       if (reservation.containsKey('userId')) {
         String userId = reservation['userId'];
         DocumentSnapshot userDoc = await _firestore.collection('users').doc(userId).get();
         if (userDoc.exists) {
-          userName = userDoc['name'] ?? 'Unknown User';
-          studentId = userDoc['studentId'] ?? 'Unknown ID';
+          Map<String, dynamic> userData = userDoc.data() as Map<String, dynamic>;
+          userName = userData['name'] ?? userData['studentName'] ?? userName; // Check `name` and `studentName`
+          studentId = userData['studentId'] ?? userData['studentNumber'] ?? studentId; // Check `studentId` and `studentNumber`
+          print("Fetched user data: $userData");
+        } else {
+          print("User document not found for userId: $userId");
         }
+      } else {
+        print("No userId provided in reservation.");
       }
 
+      // Log the updated user details
+      print("Updated reservation details - Name: $userName, Student ID: $studentId");
+
+      // Process reservation items
       List items = reservation['items'] ?? [];
       List<Map<String, dynamic>> itemDataList = [];
       int totalQuantity = 0;
@@ -240,7 +274,7 @@ class _ReleasePageState extends State<ReleasePage> {
           // Deduct item quantity
           await _deductItemQuantity(category, subCategory, label, item['itemSize'] ?? 'Unknown Size', quantity);
 
-          // Add item data to list
+          // Add item data to the list
           itemDataList.add({
             'label': label,
             'itemSize': item['itemSize'] ?? 'Unknown Size',
@@ -256,7 +290,10 @@ class _ReleasePageState extends State<ReleasePage> {
         }
       }
 
-      // Store bulk order as a single document in approved_items
+      // Log the item data before saving
+      print("Item data to be saved: $itemDataList");
+
+      // Save to approved_items collection
       print("Storing approved items...");
       await _firestore.collection('approved_items').add({
         'reservationDate': reservation['reservationDate'] ?? Timestamp.now(),
@@ -269,7 +306,7 @@ class _ReleasePageState extends State<ReleasePage> {
         'orNumber': orNumber,
       });
 
-      // Store transaction summary in admin_transactions
+      // Save to admin_transactions collection
       print("Storing transaction summary...");
       await _firestore.collection('admin_transactions').add({
         'cartItemRef': reservation['transactionId'],
@@ -282,17 +319,17 @@ class _ReleasePageState extends State<ReleasePage> {
         'items': itemDataList,
       });
 
-      // Delete the original document after approval
+      // Log successful storage
+      print("Final approved_items and admin_transactions have been stored successfully.");
+
+      // Delete the original reservation document
       if (reservation.containsKey('transactionId')) {
         print("Deleting original reservation document...");
-        await _firestore
-            .collection('approved_reservation')
-            .doc(reservation['transactionId'])
-            .delete();
+        await _firestore.collection('approved_reservation').doc(reservation['transactionId']).delete();
         print("Reservation document deleted successfully.");
       }
 
-      // Refresh data after approval
+      // Refresh the list of approved transactions
       await fetchAllApprovedTransactions();
 
       ScaffoldMessenger.of(context).showSnackBar(
@@ -308,6 +345,7 @@ class _ReleasePageState extends State<ReleasePage> {
           backgroundColor: Colors.red,
         ),
       );
+      print('Error during approval: $e');
     }
   }
 
