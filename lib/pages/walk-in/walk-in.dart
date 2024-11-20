@@ -628,6 +628,8 @@ class _MainWalkInPageState extends State<WalkinPage> {
           double itemPrice = _getItemPrice(category, item, courseLabel, size);
           double total = itemPrice * quantity;
 
+          print('Item: $item, Size: $size, Quantity: $quantity, PricePerPiece: $itemPrice, Total: $total');
+
           totalAmount += total;
 
           cartItems.add({
@@ -668,35 +670,42 @@ class _MainWalkInPageState extends State<WalkinPage> {
   }
 
   double _getItemPrice(String category, String itemLabel, String? courseLabel, String selectedSize) {
-
     double price = 0.0;
     String documentId = _findDocumentIdForItem(itemLabel);
 
-    if (category == 'senior_high_items') {
+    print('Fetching price for: $itemLabel, Category: $category, Size: $selectedSize, CourseLabel: $courseLabel, Document ID: $documentId');
 
+    if (category == 'senior_high_items') {
       price = _seniorHighStockQuantities[documentId]?['sizes']?[selectedSize]?['price'] ??
           _seniorHighStockQuantities[documentId]?['defaultPrice'] ?? 0.0;
 
-      if (price == 0.0) {
-      }
+      print('Senior High Price: $price');
     } else if (category == 'college_items' && courseLabel != null) {
-
-      _collegeStockQuantities[courseLabel]?.forEach((docId, itemData) {
-        if (itemData['itemLabel'] == itemLabel) {
+      // Fetch price specifically for college items
+      final courseItems = _collegeStockQuantities[courseLabel];
+      if (courseItems != null && courseItems.containsKey(documentId)) {
+        Map<String, dynamic>? itemData = courseItems[documentId];
+        if (itemData != null) {
           price = itemData['sizes']?[selectedSize]?['price'] ?? itemData['defaultPrice'] ?? 0.0;
+        } else {
+          print('Item data not found for documentId: $documentId under course: $courseLabel');
         }
-      });
-
-      if (price == 0.0) {
+      } else {
+        print('CourseLabel or documentId not found in college stock for: $courseLabel, $documentId');
       }
-    } else if (category == 'Merch & Accessories') {
 
+      print('College Price: $price');
+    } else if (category == 'Merch & Accessories') {
       price = _merchStockQuantities[documentId]?['sizes']?[selectedSize]?['price'] ??
           _merchStockQuantities[documentId]?['defaultPrice'] ?? 0.0;
 
-      if (price == 0.0) {
-      }
+      print('Merch Price: $price');
     } else {
+      print('Unknown category: $category');
+    }
+
+    if (price == 0.0) {
+      print('Price not found for item: $itemLabel, Size: $selectedSize');
     }
 
     return price;
