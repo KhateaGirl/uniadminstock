@@ -43,7 +43,7 @@ class _ReleasePageState extends State<ReleasePage> {
     });
 
     try {
-      // Fetch approved reservations
+      // Fetch data from approved_reservation
       QuerySnapshot approvedReservationsSnapshot =
       await _firestore.collection('approved_reservation').get();
 
@@ -51,15 +51,16 @@ class _ReleasePageState extends State<ReleasePage> {
         Map<String, dynamic> transactionData = doc.data() as Map<String, dynamic>;
         transactionData['transactionId'] = doc.id;
 
-        // Standardize the name and student ID fields
+        // Add a common timestamp field for sorting
+        transactionData['date'] = transactionData['approvalDate'] ?? Timestamp.now();
+
         transactionData['name'] = transactionData['name'] ??
-            transactionData['studentName'] ?? // Fallback to `studentName` if `name` is missing
+            transactionData['studentName'] ??
             'Unknown User';
         transactionData['studentId'] = transactionData['studentId'] ??
-            transactionData['studentNumber'] ?? // Fallback to `studentNumber` if `studentId` is missing
+            transactionData['studentNumber'] ??
             'Unknown ID';
 
-        // Process item details
         if (transactionData.containsKey('items') &&
             transactionData['items'] is List) {
           for (var item in transactionData['items']) {
@@ -75,7 +76,7 @@ class _ReleasePageState extends State<ReleasePage> {
         approvedTransactions.add(transactionData);
       }
 
-      // Fetch approved preorders
+      // Fetch data from approved_preorders
       QuerySnapshot approvedPreordersSnapshot =
       await _firestore.collection('approved_preorders').get();
 
@@ -83,34 +84,16 @@ class _ReleasePageState extends State<ReleasePage> {
         Map<String, dynamic> preorderData = doc.data() as Map<String, dynamic>;
         preorderData['transactionId'] = doc.id;
 
-        // Fetch user data if `userId` is available
-        if (preorderData.containsKey('userId') && preorderData['userId'] != null) {
-          String userId = preorderData['userId'];
-          DocumentSnapshot userDoc =
-          await _firestore.collection('users').doc(userId).get();
-          if (userDoc.exists) {
-            Map<String, dynamic> userData = userDoc.data() as Map<String, dynamic>;
+        // Add a common timestamp field for sorting
+        preorderData['date'] = preorderData['preOrderDate'] ?? Timestamp.now();
 
-            preorderData['name'] = userData['name'] ??
-                userData['studentName'] ?? // Use `studentName` if `name` is missing
-                'Unknown User';
-            preorderData['studentId'] = userData['studentId'] ??
-                userData['studentNumber'] ?? // Use `studentNumber` if `studentId` is missing
-                'Unknown ID';
-          } else {
-            preorderData['name'] = 'Unknown User';
-            preorderData['studentId'] = 'Unknown ID';
-          }
-        } else {
-          preorderData['name'] = preorderData['name'] ??
-              preorderData['studentName'] ?? // Use `studentName` if `name` is missing
-              'Unknown User';
-          preorderData['studentId'] = preorderData['studentId'] ??
-              preorderData['studentNumber'] ?? // Use `studentNumber` if `studentId` is missing
-              'Unknown ID';
-        }
+        preorderData['name'] = preorderData['name'] ??
+            preorderData['studentName'] ??
+            'Unknown User';
+        preorderData['studentId'] = preorderData['studentId'] ??
+            preorderData['studentNumber'] ??
+            'Unknown ID';
 
-        // Process item details
         if (preorderData.containsKey('items') &&
             preorderData['items'] is List) {
           for (var item in preorderData['items']) {
@@ -126,7 +109,13 @@ class _ReleasePageState extends State<ReleasePage> {
         approvedTransactions.add(preorderData);
       }
 
-      // Update state with the fetched transactions
+      // Sort the combined transactions by the 'date' field in descending order
+      approvedTransactions.sort((a, b) {
+        Timestamp aDate = a['date'] as Timestamp;
+        Timestamp bDate = b['date'] as Timestamp;
+        return bDate.compareTo(aDate); // Descending order
+      });
+
       setState(() {
         allPendingReservations = approvedTransactions;
         isLoading = false;
@@ -141,7 +130,6 @@ class _ReleasePageState extends State<ReleasePage> {
           backgroundColor: Colors.red,
         ),
       );
-      print('Error fetching approved transactions: $e');
     }
   }
 
@@ -171,7 +159,6 @@ class _ReleasePageState extends State<ReleasePage> {
                 String orNumber = _orNumberController.text;
 
                 if (orNumber.length == 8 && int.tryParse(orNumber) != null) {
-                  // Check for duplicate OR Number in admin_transactions
                   bool orNumberExists = await _checkIfORNumberExists(orNumber);
                   if (orNumberExists) {
                     ScaffoldMessenger.of(context).showSnackBar(
@@ -203,54 +190,38 @@ class _ReleasePageState extends State<ReleasePage> {
 
   Future<bool> _checkIfORNumberExists(String orNumber) async {
     try {
-      // Query the admin_transactions collection for the OR Number
       QuerySnapshot querySnapshot = await _firestore
           .collection('admin_transactions')
           .where('orNumber', isEqualTo: orNumber)
           .get();
 
-      // If any document is found, the OR Number already exists
       return querySnapshot.docs.isNotEmpty;
     } catch (e) {
-      print('Error checking OR Number: $e');
-      return false; // Default to false in case of error
+      // Handle the exception and return false as a fallback
+      print('Error checking OR number: $e');
+      return false; // Ensure a non-null value is returned
     }
   }
 
   Future<void> _approveReservation(Map<String, dynamic> reservation, String orNumber) async {
     try {
-      print("Approval process started for reservation ID: ${reservation['transactionId']}");
-
-      // Add the OR Number to the reservation
       reservation['orNumber'] = orNumber;
 
-      // Log the initial state of the reservation
-      print("Initial reservation document: $reservation");
-
-      // Initialize variables for user details
       String userName = reservation['userName'] ?? reservation['name'] ?? 'Unknown User';
       String studentId = reservation['studentId'] ?? reservation['studentNumber'] ?? 'Unknown ID';
 
-      // Fetch additional user data if userId is present
       if (reservation.containsKey('userId')) {
         String userId = reservation['userId'];
         DocumentSnapshot userDoc = await _firestore.collection('users').doc(userId).get();
         if (userDoc.exists) {
           Map<String, dynamic> userData = userDoc.data() as Map<String, dynamic>;
-          userName = userData['name'] ?? userData['studentName'] ?? userName; // Check `name` and `studentName`
-          studentId = userData['studentId'] ?? userData['studentNumber'] ?? studentId; // Check `studentId` and `studentNumber`
-          print("Fetched user data: $userData");
+          userName = userData['name'] ?? userData['studentName'] ?? userName;
+          studentId = userData['studentId'] ?? userData['studentNumber'] ?? studentId;
         } else {
-          print("User document not found for userId: $userId");
         }
       } else {
-        print("No userId provided in reservation.");
       }
 
-      // Log the updated user details
-      print("Updated reservation details - Name: $userName, Student ID: $studentId");
-
-      // Process reservation items
       List items = reservation['items'] ?? [];
       List<Map<String, dynamic>> itemDataList = [];
       int totalQuantity = 0;
@@ -271,10 +242,8 @@ class _ReleasePageState extends State<ReleasePage> {
             throw Exception('Invalid item data: missing label, category, subCategory, or quantity.');
           }
 
-          // Deduct item quantity
           await _deductItemQuantity(category, subCategory, label, item['itemSize'] ?? 'Unknown Size', quantity);
 
-          // Add item data to the list
           itemDataList.add({
             'label': label,
             'itemSize': item['itemSize'] ?? 'Unknown Size',
@@ -290,11 +259,6 @@ class _ReleasePageState extends State<ReleasePage> {
         }
       }
 
-      // Log the item data before saving
-      print("Item data to be saved: $itemDataList");
-
-      // Save to approved_items collection
-      print("Storing approved items...");
       await _firestore.collection('approved_items').add({
         'reservationDate': reservation['reservationDate'] ?? Timestamp.now(),
         'approvalDate': FieldValue.serverTimestamp(),
@@ -305,9 +269,6 @@ class _ReleasePageState extends State<ReleasePage> {
         'totalTransactionPrice': totalTransactionPrice,
         'orNumber': orNumber,
       });
-
-      // Save to admin_transactions collection
-      print("Storing transaction summary...");
       await _firestore.collection('admin_transactions').add({
         'cartItemRef': reservation['transactionId'],
         'userName': userName,
@@ -318,20 +279,11 @@ class _ReleasePageState extends State<ReleasePage> {
         'totalTransactionPrice': totalTransactionPrice,
         'items': itemDataList,
       });
-
-      // Log successful storage
-      print("Final approved_items and admin_transactions have been stored successfully.");
-
-      // Delete the original reservation document
       if (reservation.containsKey('transactionId')) {
-        print("Deleting original reservation document...");
         await _firestore.collection('approved_reservation').doc(reservation['transactionId']).delete();
-        print("Reservation document deleted successfully.");
       }
 
-      // Refresh the list of approved transactions
       await fetchAllApprovedTransactions();
-
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Reservation approved and document deleted successfully!'),
@@ -345,16 +297,14 @@ class _ReleasePageState extends State<ReleasePage> {
           backgroundColor: Colors.red,
         ),
       );
-      print('Error during approval: $e');
     }
   }
 
   Future<void> _deductItemQuantity(String category, String subCategory, String label, String size, int quantity) async {
     try {
-      // Trim and normalize the category for consistency
-      category = category.trim(); // Remove leading/trailing whitespace
-      category = category.replaceAll('_', ' '); // Replace underscores with spaces
-      category = category.split(' ').map((word) => word.capitalize()).join(' '); // Capitalize each word
+      category = category.trim();
+      category = category.replaceAll('_', ' ');
+      category = category.split(' ').map((word) => word.capitalize()).join(' ');
 
       CollectionReference itemsRef;
 
@@ -386,7 +336,6 @@ class _ReleasePageState extends State<ReleasePage> {
         }
 
       } else if (category == 'College Items') {
-        // Handle College Items category
         itemsRef = _firestore.collection('Inventory_stock').doc('college_items').collection(subCategory);
 
         QuerySnapshot querySnapshot = await itemsRef.where('label', isEqualTo: label).limit(1).get();
@@ -411,7 +360,6 @@ class _ReleasePageState extends State<ReleasePage> {
         }
 
       } else if (category == 'Senior High Items') {
-        // Handle Senior High Items category
         itemsRef = _firestore.collection('Inventory_stock').doc('senior_high_items').collection('Items');
 
         QuerySnapshot querySnapshot = await itemsRef.where('label', isEqualTo: label).limit(1).get();
@@ -449,7 +397,6 @@ class _ReleasePageState extends State<ReleasePage> {
       await _firestore.collection('approved_reservation').doc(reservation['transactionId']).delete();
 
       await fetchAllApprovedTransactions();
-
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Reservation for ${reservation['label']} rejected successfully!'),
@@ -523,10 +470,9 @@ class _ReleasePageState extends State<ReleasePage> {
                       String size = item['itemSize'] ?? 'No Size';
                       String label = item['label'] ?? 'No Label';
 
-                      // Use a unique key for each DataRow
                       return [
                         DataRow(
-                          key: ValueKey('${reservation['transactionId']}_${label}'), // Unique key
+                          key: ValueKey('${reservation['transactionId']}_${label}'),
                           cells: [
                             DataCell(Text(reservation['name'] ?? 'Unknown User')),
                             DataCell(Text(
@@ -563,14 +509,13 @@ class _ReleasePageState extends State<ReleasePage> {
                         ),
                       ];
                     } else {
-                      // Generate a unique key for bulk orders
                       double totalQuantity = items.fold<double>(0, (sum, item) => sum + (item['quantity'] ?? 1));
                       double totalOrderPrice = items.fold<double>(
                           0, (sum, item) => sum + ((item['quantity'] ?? 1) * (double.tryParse(item['pricePerPiece']?.toString() ?? '0') ?? 0.0)));
 
                       List<DataRow> rows = [
                         DataRow(
-                          key: ValueKey(reservation['transactionId']), // Unique key
+                          key: ValueKey(reservation['transactionId']),
                           cells: [
                             DataCell(Text(reservation['name'] ?? 'Unknown User')),
                             DataCell(Text(reservation['studentId'] ?? 'Unknown ID')),
@@ -621,7 +566,7 @@ class _ReleasePageState extends State<ReleasePage> {
 
                       if (isExpanded) {
                         rows.addAll(items.asMap().entries.map<DataRow>((entry) {
-                          final int index = entry.key; // Index of the item in the list
+                          final int index = entry.key;
                           final Map<String, dynamic> item = entry.value;
                           int quantity = item['quantity'] ?? 1;
                           double pricePerPiece = double.tryParse(item['pricePerPiece'].toString()) ?? 0.0;
@@ -630,16 +575,16 @@ class _ReleasePageState extends State<ReleasePage> {
                           String size = item['itemSize'] ?? 'No Size';
 
                           return DataRow(
-                            key: ValueKey('${reservation['transactionId']}_${index}'), // Unique key using transactionId and index
+                            key: ValueKey('${reservation['transactionId']}_${index}'),
                             cells: [
-                              DataCell(Text('')), // Empty cell
-                              DataCell(Text('')), // Empty cell
+                              DataCell(Text('')),
+                              DataCell(Text('')),
                               DataCell(Text(label)),
                               DataCell(Text(size)),
                               DataCell(Text('$quantity')),
                               DataCell(Text('₱${pricePerPiece.toStringAsFixed(2)}')),
                               DataCell(Text('₱${itemTotalPrice.toStringAsFixed(2)}')),
-                              DataCell(Text('')), // Empty cell
+                              DataCell(Text('')),
                             ],
                           );
                         }).toList());
