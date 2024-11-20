@@ -46,8 +46,16 @@ class _SalesHistoryPageState extends State<SalesHistoryPage> {
           'userName': transactionData['userName'] ?? 'N/A',
           'studentNumber': transactionData['studentNumber'] ?? 'N/A',
           'isBulk': items.length > 1,
-          'items': items,
-          'totalTransactionPrice': transactionData['totalTransactionPrice'],
+          'items': items.map((item) {
+            return {
+              'label': item['label'] ?? 'N/A',
+              'itemSize': item['itemSize'] ?? 'N/A',
+              'quantity': item['quantity'] ?? 0,
+              'mainCategory': item['mainCategory'] ?? 'N/A', // Explicitly add mainCategory
+              'totalPrice': item['totalPrice'] ?? 0.0,
+            };
+          }).toList(),
+          'totalTransactionPrice': transactionData['totalTransactionPrice'] ?? 0.0,
           'orderDate': transactionData['timestamp'],
         });
       }
@@ -285,7 +293,7 @@ class _SalesHistoryPageState extends State<SalesHistoryPage> {
                                   )),
                                   DataCell(Text(isBulkOrder ? '' : sale['items'][0]['itemSize'] ?? 'N/A')),
                                   DataCell(Text(isBulkOrder ? '' : '${sale['items'][0]['quantity']}')),
-                                  DataCell(Text(isBulkOrder ? '' : sale['items'][0]['category'] ?? 'N/A')),
+                                  DataCell(Text(isBulkOrder ? '' : sale['items'][0]['mainCategory'] ?? 'N/A')),
                                   DataCell(Text('₱${(sale['totalTransactionPrice'] ?? 0.0).toStringAsFixed(2)}')),
                                   DataCell(Text(
                                     sale['orderDate'] != null && sale['orderDate'] is Timestamp
@@ -308,7 +316,7 @@ class _SalesHistoryPageState extends State<SalesHistoryPage> {
                                     DataCell(Text(item['label'] ?? 'N/A')),
                                     DataCell(Text(item['itemSize'] ?? 'N/A')),
                                     DataCell(Text('${item['quantity']}')),
-                                    DataCell(Text(item['category'] ?? 'N/A')),
+                                    DataCell(Text(item['mainCategory'] ?? 'N/A')),
                                     DataCell(Text('₱${(item['totalPrice'] ?? 0.0).toStringAsFixed(2)}')),
                                     DataCell(Text('')),
                                   ],
