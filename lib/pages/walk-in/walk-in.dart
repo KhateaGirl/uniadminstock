@@ -212,11 +212,7 @@ class _MainWalkInPageState extends State<WalkinPage> {
     }
   }
 
-  Widget _buildTextFormField({
-    required TextEditingController controller,
-    required String label,
-    required String validator,
-  }) {
+  Widget _buildTextFormField({required TextEditingController controller, required String label, required String validator,}) {
     return TextFormField(
       controller: controller,
       decoration: InputDecoration(
@@ -618,14 +614,7 @@ class _MainWalkInPageState extends State<WalkinPage> {
             category = 'Merch & Accessories';
           }
 
-          String documentId = _findDocumentIdForItem(item);
-
-          if (documentId == null) {
-            print("Document ID not found for item $item");
-            continue;
-          }
-
-          double itemPrice = _getItemPrice(category, item, courseLabel, size);
+          double itemPrice = await _getItemPrice(category, item, courseLabel, size);
           double total = itemPrice * quantity;
 
           print('Item: $item, Size: $size, Quantity: $quantity, PricePerPiece: $itemPrice, Total: $total');
@@ -669,36 +658,45 @@ class _MainWalkInPageState extends State<WalkinPage> {
     }
   }
 
-  double _getItemPrice(String category, String itemLabel, String? courseLabel, String selectedSize) {
+  Future<double> _getItemPrice(String category, String itemLabel, String? courseLabel, String selectedSize) async {
     double price = 0.0;
-    String documentId = _findDocumentIdForItem(itemLabel);
 
-    print('Fetching price for: $itemLabel, Category: $category, Size: $selectedSize, CourseLabel: $courseLabel, Document ID: $documentId');
+    print('Fetching price for: $itemLabel, Category: $category, Size: $selectedSize, CourseLabel: $courseLabel');
 
     if (category == 'senior_high_items') {
-      price = _seniorHighStockQuantities[documentId]?['sizes']?[selectedSize]?['price'] ??
-          _seniorHighStockQuantities[documentId]?['defaultPrice'] ?? 0.0;
-
+      // Fetch from senior high stock
+      final itemData = _seniorHighStockQuantities[itemLabel];
+      if (itemData != null) {
+        price = itemData['sizes']?[selectedSize]?['price'] ?? itemData['defaultPrice'] ?? 0.0;
+      }
       print('Senior High Price: $price');
     } else if (category == 'college_items' && courseLabel != null) {
-      // Fetch price specifically for college items
-      final courseItems = _collegeStockQuantities[courseLabel];
-      if (courseItems != null && courseItems.containsKey(documentId)) {
-        Map<String, dynamic>? itemData = courseItems[documentId];
-        if (itemData != null) {
-          price = itemData['sizes']?[selectedSize]?['price'] ?? itemData['defaultPrice'] ?? 0.0;
+      // Fetch from college items
+      try {
+        final courseCollection = FirebaseFirestore.instance
+            .collection('Inventory_stock')
+            .doc(category)
+            .collection(courseLabel);
+
+        // Query the collection for the matching label
+        QuerySnapshot querySnapshot = await courseCollection.where('label', isEqualTo: itemLabel).get();
+
+        if (querySnapshot.docs.isNotEmpty) {
+          final itemData = querySnapshot.docs.first.data() as Map<String, dynamic>;
+          price = itemData['sizes']?[selectedSize]?['price'] ?? itemData['price'] ?? 0.0;
+          print('College Price for $itemLabel (Size: $selectedSize): $price');
         } else {
-          print('Item data not found for documentId: $documentId under course: $courseLabel');
+          print('Item not found in college_items for $itemLabel under course $courseLabel');
         }
-      } else {
-        print('CourseLabel or documentId not found in college stock for: $courseLabel, $documentId');
+      } catch (e) {
+        print('Error fetching college_items: $e');
       }
-
-      print('College Price: $price');
     } else if (category == 'Merch & Accessories') {
-      price = _merchStockQuantities[documentId]?['sizes']?[selectedSize]?['price'] ??
-          _merchStockQuantities[documentId]?['defaultPrice'] ?? 0.0;
-
+      // Fetch from merch stock
+      final itemData = _merchStockQuantities[itemLabel];
+      if (itemData != null) {
+        price = itemData['sizes']?[selectedSize]?['price'] ?? itemData['defaultPrice'] ?? 0.0;
+      }
       print('Merch Price: $price');
     } else {
       print('Unknown category: $category');
@@ -726,7 +724,6 @@ class _MainWalkInPageState extends State<WalkinPage> {
       "STI Checkered Pants": "STI_LONG_CHECKERED_PANTS",
       "STI Chef's Blouse": "STI_WHITE_CHEF_LONG_SLEEVE_BLOUSE"
     };
-
     return labelToIdMap[itemLabel] ?? itemLabel;
   }
 
