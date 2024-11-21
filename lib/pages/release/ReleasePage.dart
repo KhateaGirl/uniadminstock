@@ -165,6 +165,11 @@ class _ReleasePageState extends State<ReleasePage> {
             subCategory = (item['subCategory'] ?? 'Unknown SubCategory').trim();
           }
 
+          // Normalize category to ensure compatibility with `_deductItemQuantity`
+          if (category.toLowerCase() == 'merch_and_accessories' || category.toLowerCase() == 'merch & accessories') {
+            category = 'Merch & Accessories';
+          }
+
           int quantity = item['quantity'] ?? 0;
           double pricePerPiece = double.tryParse(item['pricePerPiece']?.toString() ?? '0') ?? 0.0;
           double totalPrice = pricePerPiece * quantity;
@@ -220,8 +225,13 @@ class _ReleasePageState extends State<ReleasePage> {
       print('Transaction data added to admin_transactions collection.');
 
       if (reservation.containsKey('transactionId')) {
-        await _firestore.collection('approved_reservation').doc(reservation['transactionId']).delete();
-        print('Reservation document deleted from approved_reservation collection.');
+        if (reservation.containsKey('preOrderDate')) {
+          await _firestore.collection('approved_preorders').doc(reservation['transactionId']).delete();
+          print('Reservation document deleted from approved_preorders collection.');
+        } else {
+          await _firestore.collection('approved_reservation').doc(reservation['transactionId']).delete();
+          print('Reservation document deleted from approved_reservation collection.');
+        }
       }
 
       await fetchAllApprovedTransactions();
@@ -242,24 +252,22 @@ class _ReleasePageState extends State<ReleasePage> {
     }
   }
 
-  Future<void> _deductItemQuantity(String category, String subCategory, String label, String size, int quantity,) async {
+  Future<void> _deductItemQuantity(String category, String subCategory, String label, String size, int quantity) async {
     try {
-      print('Deducting stock for Category: $category, SubCategory: $subCategory, Label: $label, Size: $size, Quantity: $quantity');
+      print('Deducting stock for Category/MainCategory: $category, SubCategory: $subCategory, Label: $label, Size: $size, Quantity: $quantity');
 
       if (category == null || category.isEmpty || category == 'Unknown Category') {
         throw Exception('Invalid category: $category');
       }
 
-      // Normalize category
-      category = category.trim();
-      category = category.replaceAll('_', ' ');
-      category = category.split(' ').map((word) => word.capitalize()).join(' ');
+      // Normalize category to handle variations between "Merch & Accessories" and "merch_and_accessories"
+      category = category.trim().replaceAll('_', ' ').split(' ').map((word) => word.capitalize()).join(' ');
 
       CollectionReference itemsRef;
 
       if (category == 'Merch & Accessories') {
-        DocumentSnapshot merchDoc =
-        await _firestore.collection('Inventory_stock').doc('Merch & Accessories').get();
+        // Deduct stock for Merch & Accessories
+        DocumentSnapshot merchDoc = await _firestore.collection('Inventory_stock').doc('Merch & Accessories').get();
 
         if (!merchDoc.exists) {
           throw Exception('Merch & Accessories document not found');
@@ -287,8 +295,8 @@ class _ReleasePageState extends State<ReleasePage> {
         } else {
           throw Exception('Item not found in Merch & Accessories: $label');
         }
-
       } else if (category == 'College Items') {
+        // Deduct stock for College Items
         itemsRef = _firestore.collection('Inventory_stock').doc('college_items').collection(subCategory);
 
         QuerySnapshot querySnapshot = await itemsRef.where('label', isEqualTo: label).limit(1).get();
@@ -313,8 +321,8 @@ class _ReleasePageState extends State<ReleasePage> {
         } else {
           throw Exception('Size $size not available for item $label');
         }
-
       } else if (category == 'Senior High Items') {
+        // Deduct stock for Senior High Items
         itemsRef = _firestore.collection('Inventory_stock').doc('senior_high_items').collection('Items');
 
         QuerySnapshot querySnapshot = await itemsRef.where('label', isEqualTo: label).limit(1).get();
@@ -339,9 +347,8 @@ class _ReleasePageState extends State<ReleasePage> {
         } else {
           throw Exception('Size $size not available for item $label');
         }
-
       } else {
-        throw Exception('Unknown category: $category');
+        throw Exception('Unknown category or mainCategory: $category');
       }
     } catch (e) {
       print('Error in deducting stock: $e');
