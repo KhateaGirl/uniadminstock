@@ -223,7 +223,7 @@ class _InventorySummaryPageState extends State<InventorySummaryPage> {
     final categoryMapping = {
       'Senior High': 'senior_high_items',
       'College': 'college_items',
-      'Merch & Accessories': 'merch & accessories', // Ensure correct mapping for 'Merch & Accessories'
+      'Merch & Accessories': 'merch & accessories',
     };
 
     String soldDataCategory = categoryMapping[category] ?? category.toLowerCase();
@@ -265,7 +265,9 @@ class _InventorySummaryPageState extends State<InventorySummaryPage> {
             if (courseItems.isEmpty) return SizedBox.shrink();
 
             return ExpansionTile(
-              title: Text(courseKey, style: TextStyle(fontWeight: FontWeight.bold)),
+              title: Center(
+                child: Text(courseKey, style: TextStyle(fontWeight: FontWeight.bold)),
+              ),
               children: courseItems.keys.map((itemKey) {
                 final item = courseItems[itemKey];
                 final label = item?['label'] ?? itemKey;
@@ -274,26 +276,30 @@ class _InventorySummaryPageState extends State<InventorySummaryPage> {
                 Map<String, int> soldItems = categorySoldData[normalizedLabel] ?? {};
 
                 return Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                  crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
-                    Text(label, style: TextStyle(fontWeight: FontWeight.bold)),
-                    DataTable(
-                      columns: [
-                        DataColumn(label: Text('Size')),
-                        DataColumn(label: Text('Quantity')),
-                        DataColumn(label: Text('Sold')),
-                        DataColumn(label: Text('Price')),
-                      ],
-                      rows: stock.keys.map((sizeKey) {
-                        final size = stock[sizeKey];
-                        final soldQuantity = soldItems[sizeKey.toLowerCase()] ?? 0;
-                        return DataRow(cells: [
-                          DataCell(Text(sizeKey)),
-                          DataCell(Text('${size['quantity']}')),
-                          DataCell(Text('$soldQuantity')),
-                          DataCell(Text('₱${size['price'].toStringAsFixed(2)}')),
-                        ]);
-                      }).toList(),
+                    Center(
+                      child: Text(label, style: TextStyle(fontWeight: FontWeight.bold)),
+                    ),
+                    Center(
+                      child: DataTable(
+                        columns: [
+                          DataColumn(label: Center(child: Text('Size'))),
+                          DataColumn(label: Center(child: Text('Quantity'))),
+                          DataColumn(label: Center(child: Text('Sold'))),
+                          DataColumn(label: Center(child: Text('Price'))),
+                        ],
+                        rows: stock.keys.map((sizeKey) {
+                          final size = stock[sizeKey];
+                          final soldQuantity = soldItems[sizeKey.toLowerCase()] ?? 0;
+                          return DataRow(cells: [
+                            DataCell(Center(child: Text(sizeKey))),
+                            DataCell(Center(child: Text('${size['quantity']}'))),
+                            DataCell(Center(child: Text('$soldQuantity'))),
+                            DataCell(Center(child: Text('₱${size['price'].toStringAsFixed(2)}'))),
+                          ]);
+                        }).toList(),
+                      ),
                     ),
                     Divider(thickness: 1),
                   ],
@@ -324,26 +330,30 @@ class _InventorySummaryPageState extends State<InventorySummaryPage> {
           Map<String, int> soldItems = categorySoldData[normalizedLabel] ?? {};
 
           return Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              Text(label, style: TextStyle(fontWeight: FontWeight.bold)),
-              DataTable(
-                columns: [
-                  DataColumn(label: Text('Size')),
-                  DataColumn(label: Text('Quantity')),
-                  DataColumn(label: Text('Sold')),
-                  DataColumn(label: Text('Price')),
-                ],
-                rows: stock.keys.map((sizeKey) {
-                  final size = stock[sizeKey];
-                  final soldQuantity = soldItems[sizeKey.toLowerCase()] ?? 0;
-                  return DataRow(cells: [
-                    DataCell(Text(sizeKey)),
-                    DataCell(Text('${size['quantity']}')),
-                    DataCell(Text('$soldQuantity')),
-                    DataCell(Text('₱${size['price'].toStringAsFixed(2)}')),
-                  ]);
-                }).toList(),
+              Center(
+                child: Text(label, style: TextStyle(fontWeight: FontWeight.bold)),
+              ),
+              Center(
+                child: DataTable(
+                  columns: [
+                    DataColumn(label: Center(child: Text('Size'))),
+                    DataColumn(label: Center(child: Text('Quantity'))),
+                    DataColumn(label: Center(child: Text('Sold'))),
+                    DataColumn(label: Center(child: Text('Price'))),
+                  ],
+                  rows: stock.keys.map((sizeKey) {
+                    final size = stock[sizeKey];
+                    final soldQuantity = soldItems[sizeKey.toLowerCase()] ?? 0;
+                    return DataRow(cells: [
+                      DataCell(Center(child: Text(sizeKey))),
+                      DataCell(Center(child: Text('${size['quantity']}'))),
+                      DataCell(Center(child: Text('$soldQuantity'))),
+                      DataCell(Center(child: Text('₱${size['price'].toStringAsFixed(2)}'))),
+                    ]);
+                  }).toList(),
+                ),
               ),
               Divider(thickness: 1),
             ],
