@@ -51,7 +51,6 @@ class _ReleasePageState extends State<ReleasePage> {
         Map<String, dynamic> transactionData = doc.data() as Map<String, dynamic>;
         transactionData['transactionId'] = doc.id;
 
-        // Add a common timestamp field for sorting
         transactionData['date'] = transactionData['approvalDate'] ?? Timestamp.now();
 
         transactionData['name'] = transactionData['name'] ??
@@ -60,18 +59,6 @@ class _ReleasePageState extends State<ReleasePage> {
         transactionData['studentId'] = transactionData['studentId'] ??
             transactionData['studentNumber'] ??
             'Unknown ID';
-
-        if (transactionData.containsKey('items') &&
-            transactionData['items'] is List) {
-          for (var item in transactionData['items']) {
-            item['label'] = item['label'] ?? 'No Label';
-            item['mainCategory'] = item['mainCategory'] ?? 'Unknown Category';
-            item['subCategory'] = item['subCategory'] ?? 'N/A';
-            item['size'] = item['itemSize'] ?? 'Unknown Size';
-            item['pricePerPiece'] = item['pricePerPiece'] ?? 0.0;
-            item['quantity'] = item['quantity'] ?? 1;
-          }
-        }
 
         approvedTransactions.add(transactionData);
       }
@@ -84,26 +71,25 @@ class _ReleasePageState extends State<ReleasePage> {
         Map<String, dynamic> preorderData = doc.data() as Map<String, dynamic>;
         preorderData['transactionId'] = doc.id;
 
-        // Add a common timestamp field for sorting
         preorderData['date'] = preorderData['preOrderDate'] ?? Timestamp.now();
 
-        preorderData['name'] = preorderData['name'] ??
-            preorderData['studentName'] ??
-            'Unknown User';
-        preorderData['studentId'] = preorderData['studentId'] ??
-            preorderData['studentNumber'] ??
-            'Unknown ID';
+        // Fetch name and studentId from the users collection using userId
+        if (preorderData.containsKey('userId') && preorderData['userId'] != null) {
+          String userId = preorderData['userId'];
+          DocumentSnapshot userDoc =
+          await _firestore.collection('users').doc(userId).get();
 
-        if (preorderData.containsKey('items') &&
-            preorderData['items'] is List) {
-          for (var item in preorderData['items']) {
-            item['label'] = item['label'] ?? 'No Label';
-            item['mainCategory'] = item['category'] ?? 'Unknown Category';
-            item['subCategory'] = item['courseLabel'] ?? 'N/A';
-            item['size'] = item['itemSize'] ?? 'Unknown Size';
-            item['pricePerPiece'] = item['pricePerPiece'] ?? 0.0;
-            item['quantity'] = item['quantity'] ?? 1;
+          if (userDoc.exists) {
+            Map<String, dynamic> userData = userDoc.data() as Map<String, dynamic>;
+            preorderData['name'] = userData['name'] ?? 'Unknown User';
+            preorderData['studentId'] = userData['studentId'] ?? 'Unknown ID';
+          } else {
+            preorderData['name'] = 'Unknown User';
+            preorderData['studentId'] = 'Unknown ID';
           }
+        } else {
+          preorderData['name'] = 'Unknown User';
+          preorderData['studentId'] = 'Unknown ID';
         }
 
         approvedTransactions.add(preorderData);
