@@ -119,6 +119,257 @@ class _ReleasePageState extends State<ReleasePage> {
     }
   }
 
+  Future<void> _approveReservation(Map<String, dynamic> reservation, String orNumber) async {
+    try {
+      reservation['orNumber'] = orNumber;
+
+      String userName = reservation['userName'] ?? reservation['name'] ?? 'Unknown User';
+      String studentId = reservation['studentId'] ?? reservation['studentNumber'] ?? 'Unknown ID';
+
+      print('Approving reservation for user: $userName (ID: $studentId) with OR number: $orNumber');
+
+      if (reservation.containsKey('userId')) {
+        String userId = reservation['userId'];
+        print('Fetching user details for userId: $userId');
+        DocumentSnapshot userDoc = await _firestore.collection('users').doc(userId).get();
+        if (userDoc.exists) {
+          Map<String, dynamic> userData = userDoc.data() as Map<String, dynamic>;
+          userName = userData['name'] ?? userData['studentName'] ?? userName;
+          studentId = userData['studentId'] ?? userData['studentNumber'] ?? studentId;
+          print('User details found: $userName, ID: $studentId');
+        } else {
+          print('User document not found for userId: $userId');
+        }
+      }
+
+      List items = reservation['items'] ?? [];
+      List<Map<String, dynamic>> itemDataList = [];
+      int totalQuantity = 0;
+      double totalTransactionPrice = 0.0;
+
+      if (items.isNotEmpty) {
+        print('Processing ${items.length} items for reservation');
+        for (var item in items) {
+          String label = (item['label'] ?? 'No Label').trim();
+
+          // Determine category and subCategory based on the source collection
+          String category;
+          String subCategory;
+          if (reservation.containsKey('preOrderDate')) {
+            // Item is from `approved_preorders`
+            category = (item['category'] ?? 'Unknown Category').trim();
+            subCategory = (item['courseLabel'] ?? 'Unknown SubCategory').trim();
+          } else {
+            // Item is from `approved_reservation`
+            category = (item['mainCategory'] ?? 'Unknown Category').trim();
+            subCategory = (item['subCategory'] ?? 'Unknown SubCategory').trim();
+          }
+
+          int quantity = item['quantity'] ?? 0;
+          double pricePerPiece = double.tryParse(item['pricePerPiece']?.toString() ?? '0') ?? 0.0;
+          double totalPrice = pricePerPiece * quantity;
+
+          print(
+              'Item: $label, Category: $category, SubCategory: $subCategory, Quantity: $quantity, Price: $pricePerPiece');
+
+          if (label.isEmpty || category.isEmpty || subCategory.isEmpty || quantity <= 0) {
+            throw Exception('Invalid item data: missing label, category, subCategory, or quantity.');
+          }
+
+          await _deductItemQuantity(category, subCategory, label, item['itemSize'] ?? 'Unknown Size', quantity);
+
+          itemDataList.add({
+            'label': label,
+            'itemSize': item['itemSize'] ?? 'Unknown Size',
+            'quantity': quantity,
+            'pricePerPiece': pricePerPiece,
+            'totalPrice': totalPrice,
+            'mainCategory': category,
+            'subCategory': subCategory,
+          });
+
+          totalQuantity += quantity;
+          totalTransactionPrice += totalPrice;
+        }
+      }
+
+      print('Total Quantity: $totalQuantity, Total Transaction Price: $totalTransactionPrice');
+
+      await _firestore.collection('approved_items').add({
+        'reservationDate': reservation['reservationDate'] ?? Timestamp.now(),
+        'approvalDate': FieldValue.serverTimestamp(),
+        'items': itemDataList,
+        'name': userName,
+        'studentId': studentId,
+        'totalQuantity': totalQuantity,
+        'totalTransactionPrice': totalTransactionPrice,
+        'orNumber': orNumber,
+      });
+      print('Reservation data added to approved_items collection.');
+
+      await _firestore.collection('admin_transactions').add({
+        'cartItemRef': reservation['transactionId'],
+        'userName': userName,
+        'studentNumber': studentId,
+        'timestamp': FieldValue.serverTimestamp(),
+        'orNumber': orNumber,
+        'totalQuantity': totalQuantity,
+        'totalTransactionPrice': totalTransactionPrice,
+        'items': itemDataList,
+      });
+      print('Transaction data added to admin_transactions collection.');
+
+      if (reservation.containsKey('transactionId')) {
+        await _firestore.collection('approved_reservation').doc(reservation['transactionId']).delete();
+        print('Reservation document deleted from approved_reservation collection.');
+      }
+
+      await fetchAllApprovedTransactions();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Reservation approved and document deleted successfully!'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      print('Error in approving reservation: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to approve reservation: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  Future<void> _deductItemQuantity(String category, String subCategory, String label, String size, int quantity,) async {
+    try {
+      print('Deducting stock for Category: $category, SubCategory: $subCategory, Label: $label, Size: $size, Quantity: $quantity');
+
+      if (category == null || category.isEmpty || category == 'Unknown Category') {
+        throw Exception('Invalid category: $category');
+      }
+
+      // Normalize category
+      category = category.trim();
+      category = category.replaceAll('_', ' ');
+      category = category.split(' ').map((word) => word.capitalize()).join(' ');
+
+      CollectionReference itemsRef;
+
+      if (category == 'Merch & Accessories') {
+        DocumentSnapshot merchDoc =
+        await _firestore.collection('Inventory_stock').doc('Merch & Accessories').get();
+
+        if (!merchDoc.exists) {
+          throw Exception('Merch & Accessories document not found');
+        }
+
+        Map<String, dynamic> merchData = merchDoc.data() as Map<String, dynamic>;
+
+        if (merchData.containsKey(label)) {
+          Map<String, dynamic> itemData = merchData[label] as Map<String, dynamic>;
+
+          if (itemData.containsKey('sizes') && itemData['sizes'][size] != null) {
+            int currentStock = itemData['sizes'][size]['quantity'] ?? 0;
+            print('Current stock for $label (Size: $size): $currentStock');
+
+            if (currentStock >= quantity) {
+              itemData['sizes'][size]['quantity'] = currentStock - quantity;
+              await _firestore.collection('Inventory_stock').doc('Merch & Accessories').update({label: itemData});
+              print('Stock deducted successfully for $label (Size: $size). Remaining stock: ${itemData['sizes'][size]['quantity']}');
+            } else {
+              throw Exception('Insufficient stock for $label size $size. Current stock: $currentStock, required: $quantity');
+            }
+          } else {
+            throw Exception('Size $size not available for item $label');
+          }
+        } else {
+          throw Exception('Item not found in Merch & Accessories: $label');
+        }
+
+      } else if (category == 'College Items') {
+        itemsRef = _firestore.collection('Inventory_stock').doc('college_items').collection(subCategory);
+
+        QuerySnapshot querySnapshot = await itemsRef.where('label', isEqualTo: label).limit(1).get();
+        if (querySnapshot.docs.isEmpty) {
+          throw Exception('Item not found in inventory: $label');
+        }
+
+        DocumentSnapshot itemDoc = querySnapshot.docs.first;
+        Map<String, dynamic> itemData = itemDoc.data() as Map<String, dynamic>;
+
+        if (itemData.containsKey('sizes') && itemData['sizes'][size] != null) {
+          int currentStock = itemData['sizes'][size]['quantity'] ?? 0;
+          print('Current stock for $label (Size: $size): $currentStock');
+
+          if (currentStock >= quantity) {
+            itemData['sizes'][size]['quantity'] = currentStock - quantity;
+            await itemsRef.doc(itemDoc.id).update({'sizes': itemData['sizes']});
+            print('Stock deducted successfully for $label (Size: $size). Remaining stock: ${itemData['sizes'][size]['quantity']}');
+          } else {
+            throw Exception('Insufficient stock for $label size $size. Current stock: $currentStock, required: $quantity');
+          }
+        } else {
+          throw Exception('Size $size not available for item $label');
+        }
+
+      } else if (category == 'Senior High Items') {
+        itemsRef = _firestore.collection('Inventory_stock').doc('senior_high_items').collection('Items');
+
+        QuerySnapshot querySnapshot = await itemsRef.where('label', isEqualTo: label).limit(1).get();
+        if (querySnapshot.docs.isEmpty) {
+          throw Exception('Item not found in inventory: $label');
+        }
+
+        DocumentSnapshot itemDoc = querySnapshot.docs.first;
+        Map<String, dynamic> itemData = itemDoc.data() as Map<String, dynamic>;
+
+        if (itemData.containsKey('sizes') && itemData['sizes'][size] != null) {
+          int currentStock = itemData['sizes'][size]['quantity'] ?? 0;
+          print('Current stock for $label (Size: $size): $currentStock');
+
+          if (currentStock >= quantity) {
+            itemData['sizes'][size]['quantity'] = currentStock - quantity;
+            await itemsRef.doc(itemDoc.id).update({'sizes': itemData['sizes']});
+            print('Stock deducted successfully for $label (Size: $size). Remaining stock: ${itemData['sizes'][size]['quantity']}');
+          } else {
+            throw Exception('Insufficient stock for $label size $size. Current stock: $currentStock, required: $quantity');
+          }
+        } else {
+          throw Exception('Size $size not available for item $label');
+        }
+
+      } else {
+        throw Exception('Unknown category: $category');
+      }
+    } catch (e) {
+      print('Error in deducting stock: $e');
+      throw Exception('Failed to deduct stock: $e');
+    }
+  }
+
+  Future<void> _rejectReservation(Map<String, dynamic> reservation) async {
+    try {
+      await _firestore.collection('approved_reservation').doc(reservation['transactionId']).delete();
+
+      await fetchAllApprovedTransactions();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Reservation for ${reservation['label']} rejected successfully!'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to reject reservation: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
   void _showORNumberDialog(Map<String, dynamic> reservation) {
     final _orNumberController = TextEditingController();
 
@@ -186,216 +437,6 @@ class _ReleasePageState extends State<ReleasePage> {
       // Handle the exception and return false as a fallback
       print('Error checking OR number: $e');
       return false; // Ensure a non-null value is returned
-    }
-  }
-
-  Future<void> _approveReservation(Map<String, dynamic> reservation, String orNumber) async {
-    try {
-      reservation['orNumber'] = orNumber;
-
-      String userName = reservation['userName'] ?? reservation['name'] ?? 'Unknown User';
-      String studentId = reservation['studentId'] ?? reservation['studentNumber'] ?? 'Unknown ID';
-
-      if (reservation.containsKey('userId')) {
-        String userId = reservation['userId'];
-        DocumentSnapshot userDoc = await _firestore.collection('users').doc(userId).get();
-        if (userDoc.exists) {
-          Map<String, dynamic> userData = userDoc.data() as Map<String, dynamic>;
-          userName = userData['name'] ?? userData['studentName'] ?? userName;
-          studentId = userData['studentId'] ?? userData['studentNumber'] ?? studentId;
-        } else {
-        }
-      } else {
-      }
-
-      List items = reservation['items'] ?? [];
-      List<Map<String, dynamic>> itemDataList = [];
-      int totalQuantity = 0;
-      double totalTransactionPrice = 0.0;
-
-      if (items.isNotEmpty) {
-        for (var item in items) {
-          String label = (item['label'] ?? 'No Label').trim();
-          String category = (item['mainCategory'] ?? 'Unknown Category').trim();
-          category = category.toLowerCase().replaceAll('_', ' ');
-          String subCategory = (item['subCategory'] ?? 'Unknown SubCategory').trim();
-
-          int quantity = item['quantity'] ?? 0;
-          double pricePerPiece = double.tryParse(item['pricePerPiece']?.toString() ?? '0') ?? 0.0;
-          double totalPrice = pricePerPiece * quantity;
-
-          if (label.isEmpty || category.isEmpty || subCategory.isEmpty || quantity <= 0) {
-            throw Exception('Invalid item data: missing label, category, subCategory, or quantity.');
-          }
-
-          await _deductItemQuantity(category, subCategory, label, item['itemSize'] ?? 'Unknown Size', quantity);
-
-          itemDataList.add({
-            'label': label,
-            'itemSize': item['itemSize'] ?? 'Unknown Size',
-            'quantity': quantity,
-            'pricePerPiece': pricePerPiece,
-            'totalPrice': totalPrice,
-            'mainCategory': category,
-            'subCategory': subCategory,
-          });
-
-          totalQuantity += quantity;
-          totalTransactionPrice += totalPrice;
-        }
-      }
-
-      await _firestore.collection('approved_items').add({
-        'reservationDate': reservation['reservationDate'] ?? Timestamp.now(),
-        'approvalDate': FieldValue.serverTimestamp(),
-        'items': itemDataList,
-        'name': userName,
-        'studentId': studentId,
-        'totalQuantity': totalQuantity,
-        'totalTransactionPrice': totalTransactionPrice,
-        'orNumber': orNumber,
-      });
-      await _firestore.collection('admin_transactions').add({
-        'cartItemRef': reservation['transactionId'],
-        'userName': userName,
-        'studentNumber': studentId,
-        'timestamp': FieldValue.serverTimestamp(),
-        'orNumber': orNumber,
-        'totalQuantity': totalQuantity,
-        'totalTransactionPrice': totalTransactionPrice,
-        'items': itemDataList,
-      });
-      if (reservation.containsKey('transactionId')) {
-        await _firestore.collection('approved_reservation').doc(reservation['transactionId']).delete();
-      }
-
-      await fetchAllApprovedTransactions();
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Reservation approved and document deleted successfully!'),
-          backgroundColor: Colors.green,
-        ),
-      );
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Failed to approve reservation: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
-    }
-  }
-
-  Future<void> _deductItemQuantity(String category, String subCategory, String label, String size, int quantity) async {
-    try {
-      category = category.trim();
-      category = category.replaceAll('_', ' ');
-      category = category.split(' ').map((word) => word.capitalize()).join(' ');
-
-      CollectionReference itemsRef;
-
-      if (category == 'Merch & Accessories') {
-        DocumentSnapshot merchDoc = await _firestore.collection('Inventory_stock').doc('Merch & Accessories').get();
-        if (!merchDoc.exists) {
-          throw Exception('Merch & Accessories document not found');
-        }
-
-        Map<String, dynamic> merchData = merchDoc.data() as Map<String, dynamic>;
-
-        if (merchData.containsKey(label)) {
-          Map<String, dynamic> itemData = merchData[label] as Map<String, dynamic>;
-
-          if (itemData.containsKey('sizes') && itemData['sizes'] is Map && itemData['sizes'][size] != null) {
-            int currentStock = itemData['sizes'][size]['quantity'] ?? 0;
-
-            if (currentStock >= quantity) {
-              itemData['sizes'][size]['quantity'] = currentStock - quantity;
-              await _firestore.collection('Inventory_stock').doc('Merch & Accessories').update({label: itemData});
-            } else {
-              throw Exception('Insufficient stock for $label size $size. Current stock: $currentStock, required: $quantity');
-            }
-          } else {
-            throw Exception('Size $size not available for item $label');
-          }
-        } else {
-          throw Exception('Item not found in Merch & Accessories: $label');
-        }
-
-      } else if (category == 'College Items') {
-        itemsRef = _firestore.collection('Inventory_stock').doc('college_items').collection(subCategory);
-
-        QuerySnapshot querySnapshot = await itemsRef.where('label', isEqualTo: label).limit(1).get();
-        if (querySnapshot.docs.isEmpty) {
-          throw Exception('Item not found in inventory: $label');
-        }
-
-        DocumentSnapshot itemDoc = querySnapshot.docs.first;
-        Map<String, dynamic> itemData = itemDoc.data() as Map<String, dynamic>;
-
-        if (itemData.containsKey('sizes') && itemData['sizes'] is Map && itemData['sizes'][size] != null) {
-          int currentStock = itemData['sizes'][size]['quantity'] ?? 0;
-
-          if (currentStock >= quantity) {
-            itemData['sizes'][size]['quantity'] = currentStock - quantity;
-            await itemsRef.doc(itemDoc.id).update({'sizes': itemData['sizes']});
-          } else {
-            throw Exception('Insufficient stock for $label size $size. Current stock: $currentStock, required: $quantity');
-          }
-        } else {
-          throw Exception('Size $size not available for item $label');
-        }
-
-      } else if (category == 'Senior High Items') {
-        itemsRef = _firestore.collection('Inventory_stock').doc('senior_high_items').collection('Items');
-
-        QuerySnapshot querySnapshot = await itemsRef.where('label', isEqualTo: label).limit(1).get();
-        if (querySnapshot.docs.isEmpty) {
-          throw Exception('Item not found in inventory: $label');
-        }
-
-        DocumentSnapshot itemDoc = querySnapshot.docs.first;
-        Map<String, dynamic> itemData = itemDoc.data() as Map<String, dynamic>;
-
-        if (itemData.containsKey('sizes') && itemData['sizes'] is Map && itemData['sizes'][size] != null) {
-          int currentStock = itemData['sizes'][size]['quantity'] ?? 0;
-
-          if (currentStock >= quantity) {
-            itemData['sizes'][size]['quantity'] = currentStock - quantity;
-            await itemsRef.doc(itemDoc.id).update({'sizes': itemData['sizes']});
-          } else {
-            throw Exception('Insufficient stock for $label size $size. Current stock: $currentStock, required: $quantity');
-          }
-        } else {
-          throw Exception('Size $size not available for item $label');
-        }
-
-      } else {
-        throw Exception('Unknown category: $category');
-      }
-
-    } catch (e) {
-      throw Exception('Failed to deduct stock: $e');
-    }
-  }
-
-  Future<void> _rejectReservation(Map<String, dynamic> reservation) async {
-    try {
-      await _firestore.collection('approved_reservation').doc(reservation['transactionId']).delete();
-
-      await fetchAllApprovedTransactions();
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Reservation for ${reservation['label']} rejected successfully!'),
-          backgroundColor: Colors.red,
-        ),
-      );
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Failed to reject reservation: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
     }
   }
 
